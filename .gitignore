@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets (never commit)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build
+dist/
+build/
+
+# Logs and caches
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
