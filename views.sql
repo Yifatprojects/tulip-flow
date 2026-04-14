@@ -6,7 +6,7 @@
 CREATE OR REPLACE VIEW view_budgets_detailed AS
 SELECT
   m.id AS movie_id,
-  m.studio_code,
+  m.movie_code,
   m.studio_name,
   m.movie_name_en,
   m.movie_name_he,
@@ -30,7 +30,7 @@ LEFT JOIN (
 CREATE OR REPLACE VIEW view_movies_display AS
 SELECT
   id,
-  studio_code,
+  movie_code,
   studio_name,
   movie_name_en,
   movie_name_he,

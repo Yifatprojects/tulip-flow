@@ -2,23 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowUpDown, Calendar, Clapperboard, Plus, Search, Upload, X } from 'lucide-react'
+import { ArrowUpDown, Calendar, Clapperboard, Loader2, Plus, Search, Upload, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { supabase } from './lib/supabaseClient'
 import tulipLogo from './assets/tulip-logo.png'
 
+/** @typedef {import('./types/movie').Movie} Movie */
+
 const CSV_REQUIRED_HEADERS = ['movie_code', 'category_name', 'amount', 'date']
 
-/** Distinct studio options + anything already in the database */
-const DEFAULT_STUDIO_OPTIONS = [
-  'Universal Pictures',
-  'Paramount Pictures',
-  'Warner Bros.',
-  'Sony Pictures',
-  'Walt Disney Studios',
-  'UIP',
-  'Other',
-]
+/** Fixed studio name options for the add-movie form */
+const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Other']
 
 /** Primary label: English, else Hebrew */
 function movieTitleEnglish(movie) {
@@ -52,7 +46,7 @@ function parseExpenseDateForDb(value) {
 
 async function fetchLookupMaps() {
   const [moviesRes, catsRes] = await Promise.all([
-    supabase.from('movies').select('id, studio_code'),
+    supabase.from('movies').select('id, movie_code'),
     supabase.from('expense_categories').select('id, category_name'),
   ])
   if (moviesRes.error) throw new Error(moviesRes.error.message)
@@ -60,8 +54,8 @@ async function fetchLookupMaps() {
 
   const movieByCode = new Map()
   for (const m of moviesRes.data ?? []) {
-    if (m.studio_code != null && String(m.studio_code).trim() !== '') {
-      movieByCode.set(String(m.studio_code).trim(), m.id)
+    if (m.movie_code != null && String(m.movie_code).trim() !== '') {
+      movieByCode.set(String(m.movie_code).trim(), m.id)
     }
   }
 
@@ -77,7 +71,7 @@ async function fetchLookupMaps() {
 function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
   const errors = []
   const inserts = []
-  /** Last wins per movie_id for optional CSV name columns */
+  /** Last wins per resolved movie UUID for optional CSV name columns */
   const movieNamePatches = new Map()
 
   parsedRows.forEach((row, index) => {
@@ -111,9 +105,9 @@ function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
       return
     }
 
-    const movieId = movieByCode.get(movieCode)
-    if (!movieId) {
-      errors.push(`Row ${line}: no movie found with studio_code "${movieCode}"`)
+    const movieUuid = movieByCode.get(movieCode)
+    if (!movieUuid) {
+      errors.push(`Row ${line}: no movie found with movie_code "${movieCode}"`)
       return
     }
 
@@ -127,11 +121,11 @@ function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
       const patch = {}
       if (nameEnOpt) patch.movie_name_en = nameEnOpt
       if (nameHeOpt) patch.movie_name_he = nameHeOpt
-      movieNamePatches.set(movieId, { ...movieNamePatches.get(movieId), ...patch })
+      movieNamePatches.set(movieUuid, { ...movieNamePatches.get(movieUuid), ...patch })
     }
 
     inserts.push({
-      movie_id: movieId,
+      movie_id: movieUuid, // FK → movies.id (UUID); CSV matches on movie_code
       category_id: categoryId,
       amount,
       expense_date: expenseDate,
@@ -150,12 +144,13 @@ async function insertActualExpensesInChunks(inserts, chunkSize = 200) {
   }
 }
 
-function studioLabel(movie) {
-  const name = movie.studio_name?.trim()
-  const code = movie.studio_code?.trim()
-  if (name && code) return `${name} (${code})`
-  if (name) return name
+/** Studio name and production movie_code, e.g. "Universal • 4040394" */
+function movieStudioAndCodeLabel(movie) {
+  const studio = movie.studio_name?.trim()
+  const code = movie.movie_code?.trim()
+  if (studio && code) return `${studio} • ${code}`
   if (code) return code
+  if (studio) return studio
   return '—'
 }
 
@@ -190,36 +185,89 @@ function formatCurrency(value) {
   return `$${formatMoney(value)}`
 }
 
-function mergeBudgetAndActuals(budgetRows, actualRows, categories) {
-  const catMap = new Map(categories.map((c) => [c.id, c]))
-  const byCat = new Map()
+/** Shared KPI strip: budget (neutral), actual (bold), variance (green/red). */
+function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt-6' }) {
+  const variance = totalBudget - totalActual
+  const varianceNegative = variance < 0
+  const variancePositive = variance > 0
+  return (
+    <div
+      className={`grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4 ${className}`}
+    >
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[rgba(74,20,140,0.14)] bg-white/95 p-3 shadow-[0_8px_24px_rgba(74,20,140,0.08)] sm:p-4">
+        <div className="min-h-[3.25rem] sm:min-h-[3.5rem]">
+          <p className="text-[0.6rem] font-semibold uppercase leading-snug tracking-[0.14em] text-[#8A7BAB] sm:text-[0.65rem] sm:tracking-[0.16em]">
+            Total budget
+          </p>
+        </div>
+        <p className="mt-2 min-w-0 max-w-full font-['Montserrat',sans-serif] text-[clamp(0.875rem,2.4vw,1.25rem)] font-semibold tabular-nums leading-tight tracking-tight text-[#5B4B7A] sm:text-[clamp(0.9375rem,1.9vw,1.375rem)]">
+          {formatCurrency(totalBudget)}
+        </p>
+        <p className="mt-1 text-[10px] text-[#9A8AB8] sm:text-[11px]">{scopeLabel}</p>
+      </div>
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[rgba(74,20,140,0.14)] bg-white/95 p-3 shadow-[0_8px_24px_rgba(74,20,140,0.08)] sm:p-4">
+        <div className="min-h-[3.25rem] sm:min-h-[3.5rem]">
+          <p className="text-[0.6rem] font-semibold uppercase leading-snug tracking-[0.14em] text-[#8A7BAB] sm:text-[0.65rem] sm:tracking-[0.16em]">
+            Total actual (spent)
+          </p>
+        </div>
+        <p className="mt-2 min-w-0 max-w-full font-['Montserrat',sans-serif] text-[clamp(0.875rem,2.4vw,1.25rem)] font-extrabold tabular-nums leading-tight tracking-tight text-[#4A148C] sm:text-[clamp(0.9375rem,1.9vw,1.375rem)]">
+          {formatCurrency(totalActual)}
+        </p>
+        <p className="mt-1 text-[10px] text-[#9A8AB8] sm:text-[11px]">{scopeLabel}</p>
+      </div>
+      <div
+        className={`flex min-w-0 flex-col overflow-hidden rounded-xl border p-3 shadow-[0_8px_24px_rgba(74,20,140,0.08)] sm:p-4 ${
+          varianceNegative
+            ? 'border-red-200/80 bg-red-50/90'
+            : variancePositive
+              ? 'border-emerald-200/80 bg-emerald-50/90'
+              : 'border-[rgba(74,20,140,0.14)] bg-white/95'
+        }`}
+      >
+        <div className="min-h-[3.25rem] sm:min-h-[3.5rem]">
+          <p className="text-[0.6rem] font-semibold uppercase leading-snug tracking-[0.14em] text-[#8A7BAB] sm:text-[0.65rem] sm:tracking-[0.16em]">
+            Variance (remaining)
+          </p>
+        </div>
+        <p
+          className={`mt-2 min-w-0 max-w-full font-['Montserrat',sans-serif] text-[clamp(0.8125rem,2.3vw,1.2rem)] font-extrabold tabular-nums leading-tight tracking-tight sm:text-[clamp(0.875rem,1.85vw,1.3125rem)] ${
+            varianceNegative
+              ? 'text-[#C41E3A]'
+              : variancePositive
+                ? 'text-[#15803D]'
+                : 'text-[#5B4B7A]'
+          }`}
+        >
+          {formatCurrency(variance)}
+        </p>
+        <p className="mt-1 text-[10px] text-[#7C6D98] sm:text-[11px]">
+          {varianceNegative ? 'Over budget' : variancePositive ? 'Under budget' : 'On budget'}
+        </p>
+      </div>
+    </div>
+  )
+}
 
-  for (const b of budgetRows) {
-    const id = b.category_id
-    const cat = catMap.get(id)
-    byCat.set(id, {
-      categoryId: id,
-      categoryName: cat?.category_name ?? 'Unknown category',
-      budget: Number(b.budgeted_amount) || 0,
+function mergeBudgetAndActuals(budgetRows, actualRows, categories) {
+  const byCat = new Map()
+  for (const c of categories) {
+    byCat.set(c.id, {
+      categoryId: c.id,
+      categoryName: c.category_name,
+      budget: 0,
       actual: 0,
     })
   }
 
+  for (const b of budgetRows) {
+    const row = byCat.get(b.category_id)
+    if (row) row.budget = Number(b.budgeted_amount) || 0
+  }
+
   for (const a of actualRows) {
-    const id = a.category_id
-    const amt = Number(a.amount) || 0
-    const cat = catMap.get(id)
-    let row = byCat.get(id)
-    if (!row) {
-      row = {
-        categoryId: id,
-        categoryName: cat?.category_name ?? 'Unknown category',
-        budget: 0,
-        actual: 0,
-      }
-      byCat.set(id, row)
-    }
-    row.actual += amt
+    const row = byCat.get(a.category_id)
+    if (row) row.actual += Number(a.amount) || 0
   }
 
   return [...byCat.values()]
@@ -230,37 +278,25 @@ function mergeBudgetAndActuals(budgetRows, actualRows, categories) {
     .sort((a, b) => a.categoryName.localeCompare(b.categoryName))
 }
 
-async function fetchBudgetRows(movieId) {
+async function fetchBudgetRows(movieUuid) {
+  const { data: allCats, error: catErr } = await supabase
+    .from('expense_categories')
+    .select('id, category_name')
+    .order('category_name')
+
+  if (catErr) throw new Error(catErr.message)
+  const categories = allCats ?? []
+  if (categories.length === 0) return []
+
   const [budgetRes, actualRes] = await Promise.all([
-    supabase.from('budgets').select('budgeted_amount, category_id').eq('movie_id', movieId),
-    supabase.from('actual_expenses').select('category_id, amount').eq('movie_id', movieId),
+    supabase.from('budgets').select('budgeted_amount, category_id').eq('movie_id', movieUuid),
+    supabase.from('actual_expenses').select('category_id, amount').eq('movie_id', movieUuid),
   ])
 
   if (budgetRes.error) throw new Error(budgetRes.error.message)
   if (actualRes.error) throw new Error(actualRes.error.message)
 
-  const budgets = budgetRes.data ?? []
-  const actuals = actualRes.data ?? []
-
-  const catIds = [
-    ...new Set([
-      ...budgets.map((b) => b.category_id),
-      ...actuals.map((a) => a.category_id),
-    ]),
-  ].filter(Boolean)
-
-  let categories = []
-  if (catIds.length > 0) {
-    const { data: catRows, error: catErr } = await supabase
-      .from('expense_categories')
-      .select('id, category_name, reporting_code')
-      .in('id', catIds)
-
-    if (catErr) throw new Error(catErr.message)
-    categories = catRows ?? []
-  }
-
-  return mergeBudgetAndActuals(budgets, actuals, categories)
+  return mergeBudgetAndActuals(budgetRes.data ?? [], actualRes.data ?? [], categories)
 }
 
 function SortableMovieCard({ movie, totalBudget, actualSpent, isSelected, onSelect }) {
@@ -307,8 +343,8 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, isSelected, onSele
               {movieTitleHebrewSubtitle(movie)}
             </p>
           ) : null}
-          <p className="mt-1 truncate text-[11px] uppercase tracking-[0.12em] text-[#8A7BAB]">
-            {movie.studio_code || 'No code'}
+          <p className="mt-1 truncate text-[11px] font-medium tracking-wide text-[#6A5B88]">
+            {movieStudioAndCodeLabel(movie)}
           </p>
         </div>
         <div className="text-right">
@@ -372,6 +408,7 @@ export default function App() {
   const [movieActualTotals, setMovieActualTotals] = useState({})
   const [loadError, setLoadError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [studioFilter, setStudioFilter] = useState('')
   const [progressSort, setProgressSort] = useState('none')
 
   const [selectedMovie, setSelectedMovie] = useState(null)
@@ -379,6 +416,8 @@ export default function App() {
   const [budgetLoading, setBudgetLoading] = useState(false)
   const [budgetError, setBudgetError] = useState(null)
   const [budgetRefresh, setBudgetRefresh] = useState(0)
+  const [categoryAmountDrafts, setCategoryAmountDrafts] = useState({})
+  const [savingCategoryId, setSavingCategoryId] = useState(null)
 
   const [uploadBusy, setUploadBusy] = useState(false)
   const [uploadFeedback, setUploadFeedback] = useState(null)
@@ -398,7 +437,7 @@ export default function App() {
       const [moviesRes, budgetsRes, actualsRes] = await Promise.all([
         supabase
           .from('movies')
-          .select('id, movie_name_en, movie_name_he, studio_code, studio_name, release_date')
+          .select('id, movie_name_en, movie_name_he, movie_code, studio_name, release_date')
           .order('movie_name_en'),
         supabase.from('budgets').select('movie_id, budgeted_amount'),
         supabase.from('actual_expenses').select('movie_id, amount'),
@@ -410,15 +449,15 @@ export default function App() {
 
       const totals = {}
       for (const row of budgetsRes.data ?? []) {
-        const movieId = row.movie_id
+        const movieUuid = row.movie_id
         const amount = Number(row.budgeted_amount) || 0
-        totals[movieId] = (totals[movieId] ?? 0) + amount
+        totals[movieUuid] = (totals[movieUuid] ?? 0) + amount
       }
       const actualTotals = {}
       for (const row of actualsRes.data ?? []) {
-        const movieId = row.movie_id
+        const movieUuid = row.movie_id
         const amount = Number(row.amount) || 0
-        actualTotals[movieId] = (actualTotals[movieId] ?? 0) + amount
+        actualTotals[movieUuid] = (actualTotals[movieUuid] ?? 0) + amount
       }
 
       setLoadError(null)
@@ -441,6 +480,7 @@ export default function App() {
   useEffect(() => {
     if (!selectedMovie) {
       setBudgetRows([])
+      setCategoryAmountDrafts({})
       setBudgetError(null)
       return
     }
@@ -469,6 +509,79 @@ export default function App() {
       cancelled = true
     }
   }, [selectedMovie, budgetRefresh])
+
+  useEffect(() => {
+    if (budgetLoading) return
+    const next = {}
+    for (const r of budgetRows) {
+      next[r.categoryId] = {
+        budget: String(r.budget),
+        actual: String(r.actual),
+      }
+    }
+    setCategoryAmountDrafts(next)
+  }, [budgetRows, budgetLoading])
+
+  async function saveCategoryRow(categoryId) {
+    if (!selectedMovie) return
+    const draft = categoryAmountDrafts[categoryId]
+    if (!draft) return
+    const bRaw = String(draft.budget ?? '')
+      .trim()
+      .replace(/,/g, '')
+    const aRaw = String(draft.actual ?? '')
+      .trim()
+      .replace(/,/g, '')
+    const b = bRaw === '' ? 0 : Number.parseFloat(bRaw)
+    const a = aRaw === '' ? 0 : Number.parseFloat(aRaw)
+    if (!Number.isFinite(b) || !Number.isFinite(a)) {
+      setBudgetError('Enter valid numbers for budget and actual.')
+      return
+    }
+    if (b < 0 || a < 0) {
+      setBudgetError('Budget and actual cannot be negative.')
+      return
+    }
+
+    setSavingCategoryId(categoryId)
+    setBudgetError(null)
+    try {
+      const { error: upsertErr } = await supabase.from('budgets').upsert(
+        {
+          movie_id: selectedMovie.id,
+          category_id: categoryId,
+          budgeted_amount: b,
+        },
+        { onConflict: 'movie_id,category_id' },
+      )
+      if (upsertErr) throw new Error(upsertErr.message)
+
+      const { error: delErr } = await supabase
+        .from('actual_expenses')
+        .delete()
+        .eq('movie_id', selectedMovie.id)
+        .eq('category_id', categoryId)
+      if (delErr) throw new Error(delErr.message)
+
+      if (a > 0) {
+        const { error: insErr } = await supabase.from('actual_expenses').insert({
+          movie_id: selectedMovie.id,
+          category_id: categoryId,
+          amount: a,
+          expense_date: new Date().toISOString().slice(0, 10),
+          description: 'Manual entry',
+        })
+        if (insErr) throw new Error(insErr.message)
+      }
+
+      setBudgetRefresh((n) => n + 1)
+      await refreshMovies()
+    } catch (e) {
+      setBudgetError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingCategoryId(null)
+    }
+  }
 
   async function processParsedCsv(results) {
     setUploadFeedback(null)
@@ -528,8 +641,8 @@ export default function App() {
 
       await insertActualExpensesInChunks(inserts)
 
-      for (const [movieId, patch] of movieNamePatches) {
-        const { error: patchErr } = await supabase.from('movies').update(patch).eq('id', movieId)
+      for (const [movieUuid, patch] of movieNamePatches) {
+        const { error: patchErr } = await supabase.from('movies').update(patch).eq('id', movieUuid)
         if (patchErr) throw new Error(patchErr.message)
       }
 
@@ -588,23 +701,40 @@ export default function App() {
   const brandBorder = 'border border-[rgba(74,20,140,0.2)]'
 
   const codeTagClass = `rounded ${brandBorder} bg-white/90 px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[0.7rem] font-medium text-[#6A5B88]`
+  const studioFilterOptions = useMemo(() => {
+    const merged = [...DEFAULT_STUDIO_OPTIONS]
+    if (Array.isArray(movies)) {
+      for (const m of movies) {
+        const s = m.studio_name?.trim()
+        if (s && !merged.includes(s)) merged.push(s)
+      }
+    }
+    merged.sort((a, b) => a.localeCompare(b))
+    return merged
+  }, [movies])
+
   const filteredMovies = useMemo(() => {
     if (!Array.isArray(movies)) return []
     const needle = searchTerm.trim().toLowerCase()
-    const base = needle === ''
-      ? [...movies]
-      : movies.filter((m) => {
-      const nameEn = String(m.movie_name_en ?? '').toLowerCase()
-      const nameHe = String(m.movie_name_he ?? '').toLowerCase()
-      const code = String(m.studio_code ?? '').toLowerCase()
-      const studio = String(m.studio_name ?? '').toLowerCase()
-      return (
-        nameEn.includes(needle) ||
-        nameHe.includes(needle) ||
-        code.includes(needle) ||
-        studio.includes(needle)
-      )
-    })
+    let base =
+      needle === ''
+        ? [...movies]
+        : movies.filter((m) => {
+            const nameEn = String(m.movie_name_en ?? '').toLowerCase()
+            const nameHe = String(m.movie_name_he ?? '').toLowerCase()
+            const prodCode = String(m.movie_code ?? '').toLowerCase()
+            const studio = String(m.studio_name ?? '').toLowerCase()
+            return (
+              nameEn.includes(needle) ||
+              nameHe.includes(needle) ||
+              prodCode.includes(needle) ||
+              studio.includes(needle)
+            )
+          })
+
+    if (studioFilter !== '') {
+      base = base.filter((m) => String(m.studio_name ?? '').trim() === studioFilter)
+    }
 
     if (progressSort === 'none') return base
 
@@ -621,23 +751,25 @@ export default function App() {
       return progressSort === 'desc' ? rb - ra : ra - rb
     })
     return base
-  }, [movies, searchTerm, progressSort, movieBudgetTotals, movieActualTotals])
+  }, [
+    movies,
+    searchTerm,
+    studioFilter,
+    progressSort,
+    movieBudgetTotals,
+    movieActualTotals,
+  ])
 
-  const studioOptions = useMemo(() => {
-    const fromDb = new Set()
-    if (Array.isArray(movies)) {
-      for (const m of movies) {
-        const s = m.studio_name?.trim()
-        if (s) fromDb.add(s)
-      }
-    }
-    const merged = [...DEFAULT_STUDIO_OPTIONS]
-    for (const s of fromDb) {
-      if (!merged.includes(s)) merged.push(s)
-    }
-    merged.sort((a, b) => a.localeCompare(b))
-    return merged
-  }, [movies])
+  const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
+
+  const portfolioBudgetTotal = useMemo(
+    () => Object.values(movieBudgetTotals).reduce((s, v) => s + (Number(v) || 0), 0),
+    [movieBudgetTotals],
+  )
+  const portfolioActualTotal = useMemo(
+    () => Object.values(movieActualTotals).reduce((s, v) => s + (Number(v) || 0), 0),
+    [movieActualTotals],
+  )
 
   useEffect(() => {
     if (!addMovieOpen) return
@@ -678,7 +810,7 @@ export default function App() {
       const payload = {
         movie_name_en: en,
         movie_name_he: he || null,
-        studio_code: code,
+        movie_code: code,
         studio_name: studio,
         release_date: null,
       }
@@ -741,10 +873,24 @@ export default function App() {
           )}
 
           {movies !== null && !loadError && (
-            <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(300px,min(40%,34rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
+            <>
+              {movies.length > 0 && (
+                <div className="mb-8">
+                  <h2 className="mb-3 text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]">
+                    Portfolio summary
+                  </h2>
+                  <KpiSummaryCards
+                    totalBudget={portfolioBudgetTotal}
+                    totalActual={portfolioActualTotal}
+                    scopeLabel="All titles"
+                    className="mt-0"
+                  />
+                </div>
+              )}
+              <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(300px,min(40%,34rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
               <section className="min-w-0" aria-label="Movies">
                 <div
-                  className={`rounded-2xl ${brandBorder} bg-white/88 p-4 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))] lg:overflow-hidden`}
+                  className={`rounded-2xl ${brandBorder} bg-white/88 p-4 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))]`}
                 >
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]">
@@ -769,13 +915,14 @@ export default function App() {
                             : 'Low %'}
                       </button>
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                        <div className="group relative">
+                        <div className="group relative z-40">
                           <button
                             type="button"
                             disabled={uploadBusy}
                             onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#F9B233] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4B4594] shadow-[0_10px_22px_rgba(249,178,51,0.35)] transition hover:bg-[#fbc050] disabled:opacity-60"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#F9B233] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4B4594] shadow-[0_10px_22px_rgba(249,178,51,0.35)] transition hover:bg-[#fbc050] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4B4594]/50 disabled:opacity-60"
                             aria-describedby="csv-format-tooltip"
+                            title="Hover or focus to see CSV column format"
                           >
                             <Upload className="h-3 w-3" aria-hidden />
                             CSV
@@ -783,25 +930,32 @@ export default function App() {
                           <div
                             id="csv-format-tooltip"
                             role="tooltip"
-                            className="pointer-events-none absolute right-0 top-[calc(100%+0.45rem)] z-20 w-[min(22rem,80vw)] rounded-lg border border-[rgba(74,20,140,0.2)] bg-white p-2.5 text-[10px] leading-relaxed text-[#6A5B88] opacity-0 shadow-[0_14px_30px_rgba(74,20,140,0.15)] transition-opacity duration-150 group-hover:opacity-100"
+                            className="pointer-events-none absolute right-0 top-full z-[100] mt-2 w-[min(19rem,calc(100vw-2rem))] rounded-xl border border-[rgba(74,20,140,0.16)] bg-white p-3 text-left text-[11px] leading-snug text-[#5B4B7A] opacity-0 shadow-[0_22px_48px_rgba(74,20,140,0.18)] ring-1 ring-[rgba(74,20,140,0.06)] transition duration-200 ease-out group-hover:opacity-100 group-focus-within:opacity-100"
                           >
-                            <p className="font-semibold text-[#F9B233]">CSV format:</p>
-                            <p className="font-['JetBrains_Mono',ui-monospace,monospace]">
+                            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">
+                              Expense CSV
+                            </p>
+                            <p className="mt-2 text-[10px] leading-relaxed text-[#7C6D98]">
+                              Required header row (comma-separated):
+                            </p>
+                            <pre className="mt-1.5 max-h-24 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-[#F7F4FC] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-relaxed text-[#4B4594]">
                               movie_code,category_name,amount,date,description
-                            </p>
-                            <p className="mt-1 font-['JetBrains_Mono',ui-monospace,monospace]">
+                            </pre>
+                            <p className="mt-2 text-[10px] text-[#7C6D98]">Example data row:</p>
+                            <pre className="mt-1 max-h-20 overflow-x-auto rounded-lg bg-[#FFFBF0] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] text-[#5B4B7A]">
                               WB001,TV,1500,2026-04-01,April spend
-                            </p>
-                            <p className="mt-2 border-t border-[rgba(74,20,140,0.12)] pt-2 text-[#8A7BAB]">
-                              Optional columns (update title on that movie):{' '}
-                              <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#6A5B88]">
-                                movie_name_en
-                              </span>
-                              ,{' '}
-                              <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#6A5B88]">
-                                movie_name_he
-                              </span>
-                            </p>
+                            </pre>
+                            <div className="mt-3 border-t border-[rgba(74,20,140,0.1)] pt-3">
+                              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">
+                                Optional (per row)
+                              </p>
+                              <p className="mt-1.5 text-[10px] leading-relaxed text-[#7C6D98]">
+                                Updates display names for that movie when present:
+                              </p>
+                              <p className="mt-1 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] text-[#4B4594]">
+                                movie_name_en, movie_name_he
+                              </p>
+                            </div>
                           </div>
                         </div>
                         <button
@@ -830,14 +984,39 @@ export default function App() {
                     aria-label="CSV file for expense upload"
                   />
 
-                  <div className={`mb-4 flex items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}>
-                    <Search className="h-4 w-4 text-[#4A148C]" aria-hidden />
-                    <input
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Search movie or studio code..."
-                      className="w-full bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
-                    />
+                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+                    <div
+                      className={`flex min-h-[2.5rem] flex-1 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}
+                    >
+                      <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
+                      <input
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search name, movie code, or studio…"
+                        className="w-full min-w-0 bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
+                      />
+                    </div>
+                    <div className="flex min-h-[2.5rem] shrink-0 items-center gap-2 sm:min-w-[11rem]">
+                      <label
+                        htmlFor="studio-name-filter"
+                        className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]"
+                      >
+                        Studio
+                      </label>
+                      <select
+                        id="studio-name-filter"
+                        value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
+                        onChange={(e) => setStudioFilter(e.target.value)}
+                        className={`w-full min-w-0 rounded-xl ${brandBorder} bg-white/95 px-2.5 py-2 text-xs font-medium text-[#5B4B7A] shadow-[0_6px_14px_rgba(74,20,140,0.08)] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:max-w-[12rem]`}
+                      >
+                        <option value="">All studios</option>
+                        {studioFilterOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {uploadFeedback && (
@@ -859,7 +1038,7 @@ export default function App() {
                     <p className="py-6 text-center text-sm text-[#4A148C]">
                       {movies.length === 0
                         ? 'No movies yet. Use “Add new movie” to create a title.'
-                        : 'No movies match your search.'}
+                        : 'No movies match your search or studio filter.'}
                     </p>
                   ) : (
                     <div className="movie-list-scroll lg:h-[calc(100%-6.5rem)] lg:overflow-y-auto lg:pr-1">
@@ -912,7 +1091,7 @@ export default function App() {
 
                 {selectedMovie && (
                   <>
-                    <div className="border-b border-[rgba(74,20,140,0.16)] px-8 py-8">
+                    <div className="min-w-0 border-b border-[rgba(74,20,140,0.16)] px-4 py-6 sm:px-8 sm:py-8">
                       <h2
                         id="budget-overview-heading"
                         className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]"
@@ -931,14 +1110,15 @@ export default function App() {
                           {movieTitleHebrewSubtitle(selectedMovie)}
                         </p>
                       ) : null}
-                      <p className="mt-2 break-words text-sm text-[#8A7BAB]">{studioLabel(selectedMovie)}</p>
+                      <p className="mt-2 break-words text-sm font-medium text-[#6A5B88]">
+                        {movieStudioAndCodeLabel(selectedMovie)}
+                      </p>
                       {!budgetLoading && !budgetError && budgetRows.length > 0 && (
-                        <p className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-[#4A148C]">
-                          Total budget (all categories)
-                          <span className="ml-2 font-['Montserrat',sans-serif] text-xl font-semibold normal-case tracking-normal tabular-nums text-[#F9B233] sm:text-2xl">
-                            {formatCurrency(budgetRows.reduce((sum, row) => sum + row.budget, 0))}
-                          </span>
-                        </p>
+                        <KpiSummaryCards
+                          totalBudget={budgetRows.reduce((sum, row) => sum + row.budget, 0)}
+                          totalActual={budgetRows.reduce((sum, row) => sum + row.actual, 0)}
+                          scopeLabel="All categories"
+                        />
                       )}
                     </div>
 
@@ -958,81 +1138,160 @@ export default function App() {
 
                       {!budgetLoading && !budgetError && budgetRows.length === 0 && (
                         <p className="py-8 text-sm leading-relaxed text-[#8A7BAB]">
-                          No budget or actual expense rows for this title yet.
+                          No expense categories found. Add rows to the{' '}
+                          <code className="rounded border border-[rgba(74,20,140,0.2)] bg-[#F7F2FF] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#4A148C]">
+                            expense_categories
+                          </code>{' '}
+                          table in Supabase.
                         </p>
                       )}
 
                       {!budgetLoading && !budgetError && budgetRows.length > 0 && (
-                        <div className="overflow-x-auto overflow-y-visible rounded-xl border border-[rgba(74,20,140,0.14)] bg-white [-webkit-overflow-scrolling:touch]">
-                          <table className="w-full min-w-[18rem] border-collapse text-sm sm:min-w-[28rem]">
-                            <thead>
-                              <tr className="border-b border-[rgba(74,20,140,0.14)] bg-[#F7F2FF]">
-                                <th
-                                  scope="col"
-                                  className="px-4 py-4 text-left text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C]"
-                                >
-                                  Category
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="px-4 py-4 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C]"
-                                >
-                                  Budgeted
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="px-4 py-4 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C]"
-                                >
-                                  Actual
-                                </th>
-                                <th
-                                  scope="col"
-                                  className="px-4 py-4 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C]"
-                                >
-                                  Variance
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {budgetRows.map((row) => (
-                                <tr
-                                  key={row.categoryId}
-                                  className="border-b border-[rgba(123,82,171,0.12)] last:border-0 hover:bg-[#FDF4FA]"
-                                >
-                                  <td className="max-w-[12rem] break-words px-4 py-4 font-medium text-[#5B4B7A] sm:max-w-none">
-                                    <span className="inline-flex items-center gap-2">
-                                      <span className="h-2 w-2 rounded-full bg-gradient-to-r from-[#7B52AB] via-[#E61E6E] to-[#F9B233]" />
-                                      {row.categoryName}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-4 text-right tabular-nums text-[#6A5B88]">
-                                    {formatCurrency(row.budget)}
-                                  </td>
-                                  <td className="px-4 py-4 text-right tabular-nums text-[#6A5B88]">
-                                    {formatCurrency(row.actual)}
-                                  </td>
-                                  <td
-                                    className={`px-4 py-4 text-right text-sm tabular-nums font-semibold ${varianceCellClass(row.variance)}`}
+                        <>
+                          <div className="overflow-x-auto overflow-y-visible rounded-xl border border-[rgba(74,20,140,0.14)] bg-white [-webkit-overflow-scrolling:touch]">
+                            <table className="w-full min-w-[22rem] border-collapse text-sm sm:min-w-[36rem]">
+                              <thead>
+                                <tr className="border-b border-[rgba(74,20,140,0.14)] bg-[#F7F2FF]">
+                                  <th
+                                    scope="col"
+                                    className="align-middle px-3 py-3 text-left text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C] sm:px-4"
                                   >
-                                    {formatCurrency(row.variance)}
-                                  </td>
+                                    Category
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="align-middle px-2 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C] sm:px-4"
+                                  >
+                                    Budget ($)
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="align-middle px-2 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C] sm:px-4"
+                                  >
+                                    Actual ($)
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="hidden align-middle px-2 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C] sm:table-cell sm:px-4"
+                                  >
+                                    Variance
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="align-middle px-2 py-3 text-right text-[0.65rem] font-semibold uppercase tracking-[0.15em] text-[#4A148C] sm:px-4"
+                                  >
+                                    Save
+                                  </th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-
-                      {!budgetLoading && budgetRows.length > 0 && (
-                        <p className="mt-6 text-xs leading-relaxed text-[#8A7BAB]">
-                          Variance = budget minus actual. Emerald = under budget; red = over budget.
-                        </p>
+                              </thead>
+                              <tbody>
+                                {budgetRows.map((row) => {
+                                  const d = categoryAmountDrafts[row.categoryId] ?? {
+                                    budget: String(row.budget),
+                                    actual: String(row.actual),
+                                  }
+                                  const bNum =
+                                    parseFloat(String(d.budget ?? '').replace(/,/g, '')) || 0
+                                  const aNum =
+                                    parseFloat(String(d.actual ?? '').replace(/,/g, '')) || 0
+                                  const varDraft = bNum - aNum
+                                  return (
+                                    <tr
+                                      key={row.categoryId}
+                                      className="border-b border-[rgba(123,82,171,0.12)] last:border-0 hover:bg-[#FDF4FA]"
+                                    >
+                                      <td className="max-w-[11rem] align-middle px-3 py-3 font-medium text-[#5B4B7A] sm:max-w-xs sm:px-4">
+                                        <span className="inline-flex min-h-[2.25rem] items-center gap-2">
+                                          <span className="h-2 w-2 shrink-0 rounded-full bg-gradient-to-r from-[#7B52AB] via-[#E61E6E] to-[#F9B233]" />
+                                          <span className="min-w-0 truncate leading-snug">{row.categoryName}</span>
+                                        </span>
+                                      </td>
+                                      <td className="align-middle px-2 py-3 sm:px-4">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={0.01}
+                                          inputMode="decimal"
+                                          value={d.budget}
+                                          onChange={(e) =>
+                                            setCategoryAmountDrafts((prev) => ({
+                                              ...prev,
+                                              [row.categoryId]: {
+                                                budget: e.target.value,
+                                                actual:
+                                                  prev[row.categoryId]?.actual ?? String(row.actual),
+                                              },
+                                            }))
+                                          }
+                                          className="h-9 w-full min-w-[5rem] rounded-lg border border-[rgba(74,20,140,0.22)] bg-white px-2 py-0 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#4A148C] outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:h-10 sm:text-sm"
+                                          aria-label={`Budget for ${row.categoryName}`}
+                                        />
+                                      </td>
+                                      <td className="align-middle px-2 py-3 sm:px-4">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          step={0.01}
+                                          inputMode="decimal"
+                                          value={d.actual}
+                                          onChange={(e) =>
+                                            setCategoryAmountDrafts((prev) => ({
+                                              ...prev,
+                                              [row.categoryId]: {
+                                                budget:
+                                                  prev[row.categoryId]?.budget ?? String(row.budget),
+                                                actual: e.target.value,
+                                              },
+                                            }))
+                                          }
+                                          className="h-9 w-full min-w-[5rem] rounded-lg border border-[rgba(74,20,140,0.22)] bg-white px-2 py-0 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#4A148C] outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:h-10 sm:text-sm"
+                                          aria-label={`Actual spend for ${row.categoryName}`}
+                                        />
+                                      </td>
+                                      <td
+                                        className={`hidden align-middle px-2 py-3 text-right text-sm tabular-nums font-semibold sm:table-cell sm:px-4 ${varianceCellClass(varDraft)}`}
+                                      >
+                                        {formatCurrency(varDraft)}
+                                      </td>
+                                      <td className="align-middle px-2 py-3 sm:px-4">
+                                        <button
+                                          type="button"
+                                          onClick={() => saveCategoryRow(row.categoryId)}
+                                          disabled={savingCategoryId === row.categoryId}
+                                          className="inline-flex h-9 min-w-[3.75rem] items-center justify-center gap-1 rounded-lg bg-[#F9B233] px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4B4594] shadow-sm transition hover:bg-[#fbc050] disabled:opacity-60 sm:h-10 sm:text-[11px]"
+                                        >
+                                          {savingCategoryId === row.categoryId ? (
+                                            <>
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                              <span className="sr-only">Saving</span>
+                                            </>
+                                          ) : (
+                                            'Save'
+                                          )}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                          <p className="mt-4 text-xs leading-relaxed text-[#8A7BAB]">
+                            Enter amounts and click <span className="font-semibold text-[#6A5B88]">Save</span> for each
+                            row. Budget updates the{' '}
+                            <code className="rounded bg-[#F7F2FF] px-1 font-mono text-[10px]">budgets</code> table;
+                            actual replaces all CSV lines for that category with one total in{' '}
+                            <code className="rounded bg-[#F7F2FF] px-1 font-mono text-[10px]">actual_expenses</code>.
+                            Variance = budget − actual (emerald under budget, red over).
+                          </p>
+                        </>
                       )}
                     </div>
                   </>
                 )}
               </section>
             </div>
+            </>
           )}
         </div>
       </main>
@@ -1113,7 +1372,7 @@ export default function App() {
                   onChange={(e) => setNewMovieCode(e.target.value)}
                   autoComplete="off"
                   className="w-full rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-sm text-[#4A148C] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/25"
-                  placeholder="Matches studio_code for CSV"
+                  placeholder="Production movie_code (CSV movie_code column)"
                 />
               </div>
               <div>
