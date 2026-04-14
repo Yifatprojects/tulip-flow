@@ -762,15 +762,6 @@ export default function App() {
 
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
 
-  const portfolioBudgetTotal = useMemo(
-    () => Object.values(movieBudgetTotals).reduce((s, v) => s + (Number(v) || 0), 0),
-    [movieBudgetTotals],
-  )
-  const portfolioActualTotal = useMemo(
-    () => Object.values(movieActualTotals).reduce((s, v) => s + (Number(v) || 0), 0),
-    [movieActualTotals],
-  )
-
   useEffect(() => {
     if (!addMovieOpen) return
     function onKey(e) {
@@ -874,19 +865,6 @@ export default function App() {
 
           {movies !== null && !loadError && (
             <>
-              {movies.length > 0 && (
-                <div className="mb-8">
-                  <h2 className="mb-3 text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]">
-                    Portfolio summary
-                  </h2>
-                  <KpiSummaryCards
-                    totalBudget={portfolioBudgetTotal}
-                    totalActual={portfolioActualTotal}
-                    scopeLabel="All titles"
-                    className="mt-0"
-                  />
-                </div>
-              )}
               <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(300px,min(40%,34rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
               <section className="min-w-0" aria-label="Movies">
                 <div
@@ -1276,14 +1254,6 @@ export default function App() {
                               </tbody>
                             </table>
                           </div>
-                          <p className="mt-4 text-xs leading-relaxed text-[#8A7BAB]">
-                            Enter amounts and click <span className="font-semibold text-[#6A5B88]">Save</span> for each
-                            row. Budget updates the{' '}
-                            <code className="rounded bg-[#F7F2FF] px-1 font-mono text-[10px]">budgets</code> table;
-                            actual replaces all CSV lines for that category with one total in{' '}
-                            <code className="rounded bg-[#F7F2FF] px-1 font-mono text-[10px]">actual_expenses</code>.
-                            Variance = budget − actual (emerald under budget, red over).
-                          </p>
                         </>
                       )}
                     </div>
