@@ -20,8 +20,18 @@ const DEFAULT_STUDIO_OPTIONS = [
   'Other',
 ]
 
-function movieDisplayName(movie) {
-  return movie?.movie_name?.trim() || 'Untitled'
+/** Primary label: English, else Hebrew */
+function movieTitleEnglish(movie) {
+  const en = movie?.movie_name_en?.trim()
+  const he = movie?.movie_name_he?.trim()
+  return en || he || 'Untitled'
+}
+
+/** Hebrew subtitle when both EN and HE exist; otherwise empty */
+function movieTitleHebrewSubtitle(movie) {
+  const en = movie?.movie_name_en?.trim()
+  const he = movie?.movie_name_he?.trim()
+  return en && he ? he : ''
 }
 
 function normalizeCsvHeader(h) {
@@ -67,6 +77,8 @@ async function fetchLookupMaps() {
 function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
   const errors = []
   const inserts = []
+  /** Last wins per movie_id for optional CSV name columns */
+  const movieNamePatches = new Map()
 
   parsedRows.forEach((row, index) => {
     const line = index + 2
@@ -75,6 +87,8 @@ function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
     const amountRaw = row.amount
     const dateRaw = row.date
     const description = row.description != null ? String(row.description) : ''
+    const nameEnOpt = row.movie_name_en != null ? String(row.movie_name_en).trim() : ''
+    const nameHeOpt = row.movie_name_he != null ? String(row.movie_name_he).trim() : ''
 
     if (!movieCode) {
       errors.push(`Row ${line}: movie_code is empty`)
@@ -109,6 +123,13 @@ function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
       return
     }
 
+    if (nameEnOpt || nameHeOpt) {
+      const patch = {}
+      if (nameEnOpt) patch.movie_name_en = nameEnOpt
+      if (nameHeOpt) patch.movie_name_he = nameHeOpt
+      movieNamePatches.set(movieId, { ...movieNamePatches.get(movieId), ...patch })
+    }
+
     inserts.push({
       movie_id: movieId,
       category_id: categoryId,
@@ -118,7 +139,7 @@ function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
     })
   })
 
-  return { errors, inserts }
+  return { errors, inserts, movieNamePatches }
 }
 
 async function insertActualExpensesInChunks(inserts, chunkSize = 200) {
@@ -270,13 +291,22 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, isSelected, onSele
           ? 'border-[rgba(249,178,51,0.75)] bg-white shadow-[0_0_0_1px_rgba(249,178,51,0.45),0_12px_28px_rgba(249,178,51,0.24)]'
           : 'border-[rgba(123,82,171,0.24)] bg-white hover:border-[rgba(249,178,51,0.6)] hover:bg-[#FFFDF6] hover:shadow-[0_10px_22px_rgba(123,82,171,0.14)]'
       } ${isDragging ? 'opacity-60' : ''}`}
-      aria-label={`Open budget overview for ${movieDisplayName(movie)}`}
+      aria-label={`Open budget overview for ${movieTitleEnglish(movie)}${movieTitleHebrewSubtitle(movie) ? ` — ${movieTitleHebrewSubtitle(movie)}` : ''}`}
     >
       <div className="mb-3 grid grid-cols-[1fr_auto] gap-3">
         <div className="min-w-0">
           <h3 className="truncate font-['Montserrat',sans-serif] text-base font-bold leading-tight text-[#F9B233]">
-            {movieDisplayName(movie)}
+            {movieTitleEnglish(movie)}
           </h3>
+          {movieTitleHebrewSubtitle(movie) ? (
+            <p
+              className="mt-0.5 truncate text-[11px] leading-snug text-[#9A8AB8]"
+              dir="rtl"
+              lang="he"
+            >
+              {movieTitleHebrewSubtitle(movie)}
+            </p>
+          ) : null}
           <p className="mt-1 truncate text-[11px] uppercase tracking-[0.12em] text-[#8A7BAB]">
             {movie.studio_code || 'No code'}
           </p>
@@ -368,8 +398,8 @@ export default function App() {
       const [moviesRes, budgetsRes, actualsRes] = await Promise.all([
         supabase
           .from('movies')
-          .select('id, movie_name, studio_code, studio_name, release_date')
-          .order('movie_name'),
+          .select('id, movie_name_en, movie_name_he, studio_code, studio_name, release_date')
+          .order('movie_name_en'),
         supabase.from('budgets').select('movie_id, budgeted_amount'),
         supabase.from('actual_expenses').select('movie_id, amount'),
       ])
@@ -481,7 +511,11 @@ export default function App() {
     setUploadBusy(true)
     try {
       const { movieByCode, categoryByNameLower } = await fetchLookupMaps()
-      const { errors, inserts } = validateRowsToInserts(dataRows, movieByCode, categoryByNameLower)
+      const { errors, inserts, movieNamePatches } = validateRowsToInserts(
+        dataRows,
+        movieByCode,
+        categoryByNameLower,
+      )
 
       if (errors.length > 0) {
         setUploadFeedback({
@@ -493,9 +527,15 @@ export default function App() {
       }
 
       await insertActualExpensesInChunks(inserts)
+
+      for (const [movieId, patch] of movieNamePatches) {
+        const { error: patchErr } = await supabase.from('movies').update(patch).eq('id', movieId)
+        if (patchErr) throw new Error(patchErr.message)
+      }
+
       setUploadFeedback({
         type: 'success',
-        message: `Successfully uploaded ${inserts.length} expense row${inserts.length === 1 ? '' : 's'}.`,
+        message: `Successfully uploaded ${inserts.length} expense row${inserts.length === 1 ? '' : 's'}.${movieNamePatches.size > 0 ? ` Updated names for ${movieNamePatches.size} title${movieNamePatches.size === 1 ? '' : 's'} from CSV.` : ''}`,
       })
       setBudgetRefresh((n) => n + 1)
     } catch (e) {
@@ -554,10 +594,16 @@ export default function App() {
     const base = needle === ''
       ? [...movies]
       : movies.filter((m) => {
-      const name = String(m.movie_name ?? '').toLowerCase()
+      const nameEn = String(m.movie_name_en ?? '').toLowerCase()
+      const nameHe = String(m.movie_name_he ?? '').toLowerCase()
       const code = String(m.studio_code ?? '').toLowerCase()
       const studio = String(m.studio_name ?? '').toLowerCase()
-      return name.includes(needle) || code.includes(needle) || studio.includes(needle)
+      return (
+        nameEn.includes(needle) ||
+        nameHe.includes(needle) ||
+        code.includes(needle) ||
+        studio.includes(needle)
+      )
     })
 
     if (progressSort === 'none') return base
@@ -627,11 +673,11 @@ export default function App() {
       setAddMovieError('Choose a studio.')
       return
     }
-    const movie_name = en && he ? `${en} · ${he}` : en || he
     setAddMovieBusy(true)
     try {
       const payload = {
-        movie_name,
+        movie_name_en: en,
+        movie_name_he: he || null,
         studio_code: code,
         studio_name: studio,
         release_date: null,
@@ -745,6 +791,16 @@ export default function App() {
                             </p>
                             <p className="mt-1 font-['JetBrains_Mono',ui-monospace,monospace]">
                               WB001,TV,1500,2026-04-01,April spend
+                            </p>
+                            <p className="mt-2 border-t border-[rgba(74,20,140,0.12)] pt-2 text-[#8A7BAB]">
+                              Optional columns (update title on that movie):{' '}
+                              <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#6A5B88]">
+                                movie_name_en
+                              </span>
+                              ,{' '}
+                              <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#6A5B88]">
+                                movie_name_he
+                              </span>
                             </p>
                           </div>
                         </div>
@@ -864,8 +920,17 @@ export default function App() {
                         Budget overview
                       </h2>
                       <p className="mt-3 break-words font-['Montserrat',sans-serif] text-2xl font-extrabold tracking-tight text-[#4A148C]">
-                        {movieDisplayName(selectedMovie)}
+                        {movieTitleEnglish(selectedMovie)}
                       </p>
+                      {movieTitleHebrewSubtitle(selectedMovie) ? (
+                        <p
+                          className="mt-2 max-w-prose break-words text-sm leading-snug text-[#9A8AB8]"
+                          dir="rtl"
+                          lang="he"
+                        >
+                          {movieTitleHebrewSubtitle(selectedMovie)}
+                        </p>
+                      ) : null}
                       <p className="mt-2 break-words text-sm text-[#8A7BAB]">{studioLabel(selectedMovie)}</p>
                       {!budgetLoading && !budgetError && budgetRows.length > 0 && (
                         <p className="mt-5 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-[#4A148C]">
@@ -1076,9 +1141,7 @@ export default function App() {
               )}
 
               <p className="text-[11px] leading-relaxed text-[#8A7BAB]">
-                If both languages are filled, the list shows them as{' '}
-                <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#6A5B88]">English · Hebrew</span>
-                .
+                English is shown first; when both languages are set, Hebrew appears below in smaller type.
               </p>
 
               <div className="flex flex-wrap justify-end gap-2 pt-2">
