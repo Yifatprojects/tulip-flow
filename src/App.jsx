@@ -2,152 +2,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowUpDown, Calendar, Clapperboard, Loader2, Plus, Search, Upload, X } from 'lucide-react'
-import Papa from 'papaparse'
+import {
+  ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
+  DollarSign, Eye, EyeOff, Film, Loader2, Plus, Receipt,
+  Search, Settings, TrendingUp, X,
+} from 'lucide-react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts'
 import { supabase } from './lib/supabaseClient'
 import tulipLogo from './assets/tulip-logo.png'
+import { ExcelUploadButton } from './ExcelUpload'
+import { FilmsManagementModal } from './FilmsManagement'
 
 /** @typedef {import('./types/movie').Movie} Movie */
-
-const CSV_REQUIRED_HEADERS = ['movie_code', 'category_name', 'amount', 'date']
 
 /** Fixed studio name options for the add-movie form */
 const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Other']
 
-/** Primary label: English, else Hebrew */
+/** Primary display title: English, else Hebrew */
 function movieTitleEnglish(movie) {
-  const en = movie?.movie_name_en?.trim()
-  const he = movie?.movie_name_he?.trim()
+  const en = movie?.title_en?.trim()
+  const he = movie?.title_he?.trim()
   return en || he || 'Untitled'
 }
 
-/** Hebrew subtitle when both EN and HE exist; otherwise empty */
+/** Hebrew subtitle shown below when both languages are set */
 function movieTitleHebrewSubtitle(movie) {
-  const en = movie?.movie_name_en?.trim()
-  const he = movie?.movie_name_he?.trim()
+  const en = movie?.title_en?.trim()
+  const he = movie?.title_he?.trim()
   return en && he ? he : ''
 }
 
-function normalizeCsvHeader(h) {
-  return String(h ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_')
-}
-
-function parseExpenseDateForDb(value) {
-  if (value == null || String(value).trim() === '') return null
-  const s = String(value).trim()
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-  const d = new Date(s)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString().slice(0, 10)
-}
-
-async function fetchLookupMaps() {
-  const [moviesRes, catsRes] = await Promise.all([
-    supabase.from('movies').select('id, movie_code'),
-    supabase.from('expense_categories').select('id, category_name'),
-  ])
-  if (moviesRes.error) throw new Error(moviesRes.error.message)
-  if (catsRes.error) throw new Error(catsRes.error.message)
-
-  const movieByCode = new Map()
-  for (const m of moviesRes.data ?? []) {
-    if (m.movie_code != null && String(m.movie_code).trim() !== '') {
-      movieByCode.set(String(m.movie_code).trim(), m.id)
-    }
-  }
-
-  const categoryByNameLower = new Map()
-  for (const c of catsRes.data ?? []) {
-    const k = String(c.category_name).trim().toLowerCase()
-    if (!categoryByNameLower.has(k)) categoryByNameLower.set(k, c.id)
-  }
-
-  return { movieByCode, categoryByNameLower }
-}
-
-function validateRowsToInserts(parsedRows, movieByCode, categoryByNameLower) {
-  const errors = []
-  const inserts = []
-  /** Last wins per resolved movie UUID for optional CSV name columns */
-  const movieNamePatches = new Map()
-
-  parsedRows.forEach((row, index) => {
-    const line = index + 2
-    const movieCode = row.movie_code != null ? String(row.movie_code).trim() : ''
-    const catName = row.category_name != null ? String(row.category_name).trim() : ''
-    const amountRaw = row.amount
-    const dateRaw = row.date
-    const description = row.description != null ? String(row.description) : ''
-    const nameEnOpt = row.movie_name_en != null ? String(row.movie_name_en).trim() : ''
-    const nameHeOpt = row.movie_name_he != null ? String(row.movie_name_he).trim() : ''
-
-    if (!movieCode) {
-      errors.push(`Row ${line}: movie_code is empty`)
-      return
-    }
-    if (!catName) {
-      errors.push(`Row ${line}: category_name is empty`)
-      return
-    }
-
-    const amount = Number(String(amountRaw).replace(/,/g, ''))
-    if (Number.isNaN(amount)) {
-      errors.push(`Row ${line}: invalid amount "${amountRaw}"`)
-      return
-    }
-
-    const expenseDate = parseExpenseDateForDb(dateRaw)
-    if (!expenseDate) {
-      errors.push(`Row ${line}: invalid or missing date "${dateRaw ?? ''}"`)
-      return
-    }
-
-    const movieUuid = movieByCode.get(movieCode)
-    if (!movieUuid) {
-      errors.push(`Row ${line}: no movie found with movie_code "${movieCode}"`)
-      return
-    }
-
-    const categoryId = categoryByNameLower.get(catName.toLowerCase())
-    if (!categoryId) {
-      errors.push(`Row ${line}: no category named "${catName}"`)
-      return
-    }
-
-    if (nameEnOpt || nameHeOpt) {
-      const patch = {}
-      if (nameEnOpt) patch.movie_name_en = nameEnOpt
-      if (nameHeOpt) patch.movie_name_he = nameHeOpt
-      movieNamePatches.set(movieUuid, { ...movieNamePatches.get(movieUuid), ...patch })
-    }
-
-    inserts.push({
-      movie_id: movieUuid, // FK → movies.id (UUID); CSV matches on movie_code
-      category_id: categoryId,
-      amount,
-      expense_date: expenseDate,
-      description: description.trim() === '' ? null : description.trim(),
-    })
-  })
-
-  return { errors, inserts, movieNamePatches }
-}
-
-async function insertActualExpensesInChunks(inserts, chunkSize = 200) {
-  for (let i = 0; i < inserts.length; i += chunkSize) {
-    const chunk = inserts.slice(i, i + chunkSize)
-    const { error } = await supabase.from('actual_expenses').insert(chunk)
-    if (error) throw new Error(error.message)
-  }
-}
-
-/** Studio name and production movie_code, e.g. "Universal • 4040394" */
+/** Studio name and film_number, e.g. "Universal • WB001" */
 function movieStudioAndCodeLabel(movie) {
-  const studio = movie.studio_name?.trim()
-  const code = movie.movie_code?.trim()
+  const studio = movie.studio?.trim()
+  const code = movie.film_number?.trim()
   if (studio && code) return `${studio} • ${code}`
   if (code) return code
   if (studio) return studio
@@ -182,7 +72,7 @@ function varianceCellClass(v) {
 }
 
 function formatCurrency(value) {
-  return `$${formatMoney(value)}`
+  return `₪${formatMoney(value)}`
 }
 
 /** Shared KPI strip: budget (neutral), actual (bold), variance (green/red). */
@@ -249,70 +139,111 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
   )
 }
 
-function mergeBudgetAndActuals(budgetRows, actualRows, categories) {
+/**
+ * Fetch budget vs actual figures for a single film, grouped by category text.
+ * Queries the new `budgets` and `expenses` tables (both keyed by film_number).
+ */
+async function fetchBudgetRows(filmNumber) {
+  const { data, error } = await supabase
+    .from('budgets')
+    .select('category, amount')
+    .eq('film_number', filmNumber)
+
+  if (error) throw new Error(error.message)
+
   const byCat = new Map()
-  for (const c of categories) {
-    byCat.set(c.id, {
-      categoryId: c.id,
-      categoryName: c.category_name,
-      budget: 0,
-      actual: 0,
-    })
-  }
-
-  for (const b of budgetRows) {
-    const row = byCat.get(b.category_id)
-    if (row) row.budget = Number(b.budgeted_amount) || 0
-  }
-
-  for (const a of actualRows) {
-    const row = byCat.get(a.category_id)
-    if (row) row.actual += Number(a.amount) || 0
+  for (const b of data ?? []) {
+    const cat = b.category?.trim() || 'Uncategorised'
+    const existing = byCat.get(cat) ?? { categoryId: cat, categoryName: cat, budget: 0, actual: 0 }
+    existing.budget += Number(b.amount) || 0
+    byCat.set(cat, existing)
   }
 
   return [...byCat.values()]
-    .map((row) => ({
-      ...row,
-      variance: row.budget - row.actual,
-    }))
+    .map((row) => ({ ...row, variance: row.budget - row.actual }))
     .sort((a, b) => a.categoryName.localeCompare(b.categoryName))
 }
 
-async function fetchBudgetRows(movieUuid) {
-  const { data: allCats, error: catErr } = await supabase
-    .from('expense_categories')
-    .select('id, category_name')
-    .order('category_name')
-
-  if (catErr) throw new Error(catErr.message)
-  const categories = allCats ?? []
-  if (categories.length === 0) return []
-
-  const [budgetRes, actualRes] = await Promise.all([
-    supabase.from('budgets').select('budgeted_amount, category_id').eq('movie_id', movieUuid),
-    supabase.from('actual_expenses').select('category_id, amount').eq('movie_id', movieUuid),
+/**
+ * Fetch actual expense rows for a film, joined with the expenses catalog
+ * via priority_code to show expense_description and expense_type.
+ */
+async function fetchActualExpensesRows(filmNumber) {
+  const [txRes, catalogRes] = await Promise.all([
+    supabase
+      .from('actual_expenses')
+      .select('month_period, actual_amount, priority_code, studio_name')
+      .eq('film_number', filmNumber)
+      .order('month_period'),
+    supabase
+      .from('expenses')
+      .select('priority_code, expense_description, expense_type, media_budget_code'),
   ])
 
-  if (budgetRes.error) throw new Error(budgetRes.error.message)
-  if (actualRes.error) throw new Error(actualRes.error.message)
+  if (txRes.error) throw new Error(txRes.error.message)
 
-  return mergeBudgetAndActuals(budgetRes.data ?? [], actualRes.data ?? [], categories)
+  const descMap = new Map()
+  for (const r of catalogRes.data ?? []) {
+    descMap.set(r.priority_code, {
+      expense_description: r.expense_description,
+      expense_type: r.expense_type,
+      media_budget_code: r.media_budget_code,
+    })
+  }
+
+  return (txRes.data ?? []).map((tx) => ({
+    ...tx,
+    expense_description:
+      descMap.get(tx.priority_code)?.expense_description ?? tx.priority_code ?? '—',
+    expense_type: descMap.get(tx.priority_code)?.expense_type ?? '—',
+    media_budget_code: descMap.get(tx.priority_code)?.media_budget_code ?? '',
+  }))
 }
 
-function SortableMovieCard({ movie, totalBudget, actualSpent, isSelected, onSelect }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: movie.id,
-  })
+/**
+ * Fetch rental income rows for a film, joined with the rentals catalog
+ * via priority_code to show income_description instead of raw codes.
+ */
+async function fetchIncomeRows(filmNumber) {
+  const [txRes, catalogRes] = await Promise.all([
+    supabase
+      .from('rental_transactions')
+      .select('month_period, actual_amount, priority_code, reporting_code')
+      .eq('film_number', filmNumber)
+      .order('month_period'),
+    supabase
+      .from('rentals')
+      .select('priority_code, income_description, format_type, reporting_code'),
+  ])
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+  if (txRes.error) throw new Error(txRes.error.message)
+
+  const descMap = new Map()
+  for (const r of catalogRes.data ?? []) {
+    descMap.set(r.priority_code, {
+      income_description: r.income_description,
+      format_type: r.format_type,
+    })
   }
-  const spentRatio = totalBudget > 0 ? Math.min((actualSpent / totalBudget) * 100, 100) : actualSpent > 0 ? 100 : 0
+
+  return (txRes.data ?? []).map((tx) => ({
+    ...tx,
+    income_description:
+      descMap.get(tx.priority_code)?.income_description ?? tx.priority_code ?? tx.reporting_code ?? '—',
+    format_type: descMap.get(tx.priority_code)?.format_type ?? '—',
+  }))
+}
+
+function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: movie.film_number,
+  })
+  const style = { transform: CSS.Transform.toString(transform), transition }
+
+  const spentRatio   = totalBudget > 0 ? Math.min((actualSpent / totalBudget) * 100, 100) : actualSpent > 0 ? 100 : 0
   const isOverBudget = totalBudget > 0 && actualSpent > totalBudget
-  const overBy = Math.max(actualSpent - totalBudget, 0)
-  const isAt90 = !isOverBudget && spentRatio >= 90
-  const isAt80 = !isOverBudget && spentRatio >= 80 && spentRatio < 90
+  const isAt90       = !isOverBudget && spentRatio >= 90
+  const isAt80       = !isOverBudget && spentRatio >= 80 && spentRatio < 90
 
   return (
     <button
@@ -327,89 +258,220 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, isSelected, onSele
           ? 'border-[rgba(249,178,51,0.75)] bg-white shadow-[0_0_0_1px_rgba(249,178,51,0.45),0_12px_28px_rgba(249,178,51,0.24)]'
           : 'border-[rgba(123,82,171,0.24)] bg-white hover:border-[rgba(249,178,51,0.6)] hover:bg-[#FFFDF6] hover:shadow-[0_10px_22px_rgba(123,82,171,0.14)]'
       } ${isDragging ? 'opacity-60' : ''}`}
-      aria-label={`Open budget overview for ${movieTitleEnglish(movie)}${movieTitleHebrewSubtitle(movie) ? ` — ${movieTitleHebrewSubtitle(movie)}` : ''}`}
     >
-      <div className="mb-3 grid grid-cols-[1fr_auto] gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate font-['Montserrat',sans-serif] text-base font-bold leading-tight text-[#F9B233]">
-            {movieTitleEnglish(movie)}
-          </h3>
-          {movieTitleHebrewSubtitle(movie) ? (
-            <p
-              className="mt-0.5 truncate text-[11px] leading-snug text-[#9A8AB8]"
-              dir="rtl"
-              lang="he"
-            >
+      {/* Title row */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate font-['Montserrat',sans-serif] text-sm font-bold leading-tight text-[#F9B233]">
+              {movieTitleEnglish(movie)}
+            </h3>
+            {isOverBudget && (
+              <span className="shrink-0 rounded-full bg-[#FFE5EC] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E61E6E] ring-1 ring-[#E61E6E]/30">
+                Over Budget
+              </span>
+            )}
+          </div>
+          {movieTitleHebrewSubtitle(movie) && (
+            <p className="mt-0.5 truncate text-[10px] leading-snug text-[#9A8AB8]" dir="rtl" lang="he">
               {movieTitleHebrewSubtitle(movie)}
             </p>
-          ) : null}
-          <p className="mt-1 truncate text-[11px] font-medium tracking-wide text-[#6A5B88]">
-            {movieStudioAndCodeLabel(movie)}
-          </p>
+          )}
+          <p className="mt-0.5 truncate text-[10px] text-[#6A5B88]">{movieStudioAndCodeLabel(movie)}</p>
         </div>
-        <div className="text-right">
-          <span className="font-['Montserrat',sans-serif] text-sm font-semibold tracking-wide text-[#F9B233]">
+        <div className="shrink-0 text-right">
+          <p className="font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#4B4594]">
             {formatCurrency(totalBudget)}
-          </span>
-          <p className="mt-1 text-[10px] text-[#8A7BAB]">Budget</p>
+          </p>
+          <p className="text-[9px] text-[#8A7BAB]">Budget</p>
         </div>
       </div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-[#8A7BAB]">
-          <Calendar className="h-3.5 w-3.5 shrink-0 text-[#F9B233]" aria-hidden />
-          <span className="truncate">{formatReleaseDate(movie.release_date)}</span>
-        </div>
-        <div className="text-[11px] text-[#8A7BAB]">
-          Spent: <span className="tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span>
-        </div>
-      </div>
-      <div
-        className={`h-2 w-full overflow-hidden rounded-full ${
-          isOverBudget ? 'bg-[#FFE5EC] ring-1 ring-[#E61E6E]/35' : 'bg-[#F2E9FF]'
-        }`}
-      >
+
+      {/* Progress bar */}
+      <div className={`mb-1.5 h-2 w-full overflow-hidden rounded-full ${isOverBudget ? 'bg-[#FFE5EC]' : 'bg-[#F2E9FF]'}`}>
         <div
           className={`h-full rounded-full transition-all ${
-            isOverBudget
-              ? 'bg-gradient-to-r from-[#E61E6E] to-[#FF6B8A]'
-              : isAt90
-                ? 'bg-[#C65A00]'
-                : isAt80
-                  ? 'bg-[#FF8A00]'
+            isOverBudget ? 'bg-gradient-to-r from-[#E61E6E] to-[#FF6B8A]'
+              : isAt90    ? 'bg-[#C65A00]'
+              : isAt80    ? 'bg-[#FF8A00]'
               : 'bg-gradient-to-r from-[#7B52AB] via-[#E61E6E] to-[#F9B233]'
           }`}
           style={{ width: `${spentRatio}%` }}
         />
       </div>
-      {isAt80 && (
-        <p className="mt-1.5 text-right text-[10px] font-semibold tracking-wide text-[#FF8A00]">
-          80% budget reached
-        </p>
-      )}
-      {isAt90 && (
-        <p className="mt-1.5 text-right text-[10px] font-semibold tracking-wide text-[#C65A00]">
-          90% budget reached
-        </p>
-      )}
-      {isOverBudget && (
-        <p className="mt-1.5 text-right text-[10px] font-semibold tracking-wide text-[#E61E6E]">
-          Over budget by {formatCurrency(overBy)}
-        </p>
+
+      {/* Spent / progress label */}
+      <div className="mb-2 flex items-center justify-between text-[10px] text-[#8A7BAB]">
+        <span>Spent <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
+        <span className={`font-semibold tabular-nums ${isOverBudget ? 'text-[#E61E6E]' : isAt90 ? 'text-[#C65A00]' : 'text-[#8A7BAB]'}`}>
+          {spentRatio.toFixed(0)}%
+        </span>
+      </div>
+
+      {/* Monthly snapshot */}
+      {latestMonthLabel && (latestMonthExpenses > 0 || latestMonthIncome > 0) && (
+        <div className="mt-1 flex items-center gap-2 rounded-lg bg-[#F7F4FC] px-2.5 py-1.5">
+          <BookOpen className="h-3 w-3 shrink-0 text-[#4B4594]" aria-hidden />
+          <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{latestMonthLabel}</span>
+          {latestMonthExpenses > 0 && (
+            <span className="ml-auto text-[10px] font-semibold tabular-nums text-[#C0392B]">
+              −{formatCurrency(latestMonthExpenses)}
+            </span>
+          )}
+          {latestMonthIncome > 0 && (
+            <span className="text-[10px] font-semibold tabular-nums text-[#0EA5A0]">
+              +{formatCurrency(latestMonthIncome)}
+            </span>
+          )}
+        </div>
       )}
     </button>
   )
 }
 
-export default function App() {
-  const fileInputRef = useRef(null)
+// ── Trend chart (accumulated expenses + income over months) ──────────────────
+function TrendChart({ filmNumber }) {
+  const [chartData, setChartData] = useState(null)
 
+  useEffect(() => {
+    if (!filmNumber) return
+    let cancelled = false
+    async function load() {
+      const [expRes, incRes] = await Promise.all([
+        supabase.from('actual_expenses').select('month_period, actual_amount').eq('film_number', filmNumber).order('month_period'),
+        supabase.from('rental_transactions').select('month_period, actual_amount').eq('film_number', filmNumber).order('month_period'),
+      ])
+      if (cancelled) return
+
+      const months = [...new Set([
+        ...(expRes.data ?? []).map(r => r.month_period),
+        ...(incRes.data ?? []).map(r => r.month_period),
+      ])].sort()
+
+      if (months.length === 0) { setChartData([]); return }
+
+      // Build monthly totals
+      const expByMonth = {}
+      for (const r of expRes.data ?? []) expByMonth[r.month_period] = (expByMonth[r.month_period] ?? 0) + Number(r.actual_amount)
+      const incByMonth = {}
+      for (const r of incRes.data ?? []) incByMonth[r.month_period] = (incByMonth[r.month_period] ?? 0) + Number(r.actual_amount)
+
+      // Build accumulated series
+      let accExp = 0, accInc = 0
+      const data = months.map(m => {
+        accExp += expByMonth[m] ?? 0
+        accInc += incByMonth[m] ?? 0
+        return {
+          month: m.slice(0, 7), // YYYY-MM
+          expenses: Math.round(accExp),
+          income:   Math.round(accInc),
+        }
+      })
+      setChartData(data)
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [filmNumber])
+
+  if (chartData === null) return (
+    <div className="flex h-40 items-center justify-center">
+      <Loader2 className="h-5 w-5 animate-spin text-[#4B4594]" />
+    </div>
+  )
+  if (chartData.length === 0) return (
+    <p className="py-6 text-center text-sm text-[#8A7BAB]">No monthly data yet.</p>
+  )
+
+  const fmt = (v) => `₪${(v / 1000).toFixed(0)}k`
+
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(74,20,140,0.08)" />
+        <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#8A7BAB' }} tickLine={false} axisLine={false} />
+        <YAxis tickFormatter={fmt} tick={{ fontSize: 10, fill: '#8A7BAB' }} tickLine={false} axisLine={false} width={44} />
+        <Tooltip
+          formatter={(val, name) => [`₪${Number(val).toLocaleString()}`, name === 'expenses' ? 'Accum. Expenses' : 'Accum. Revenue']}
+          contentStyle={{ borderRadius: 10, border: '1px solid rgba(74,20,140,0.12)', fontSize: 12 }}
+        />
+        <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+          formatter={(v) => v === 'expenses' ? 'Accum. Expenses' : 'Accum. Revenue'} />
+        <Line type="monotone" dataKey="expenses" stroke="#C0392B" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+        <Line type="monotone" dataKey="income"   stroke="#0EA5A0" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
+// ── Dashboard Summary Row ─────────────────────────────────────────────────────
+function DashboardSummaryRow() {
+  const [summary, setSummary] = useState(null)
+
+  useEffect(() => {
+    const now = new Date()
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const ytdStart = `${now.getFullYear()}-01-01`
+
+    Promise.all([
+      supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth),
+      supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth),
+      supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth),
+      supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth),
+    ]).then(([ce, ci, ye, yi]) => {
+      const sum = (rows) => (rows.data ?? []).reduce((s, r) => s + Number(r.actual_amount), 0)
+      setSummary({
+        currExpenses: sum(ce), currIncome: sum(ci),
+        ytdExpenses:  sum(ye), ytdIncome:  sum(yi),
+      })
+    })
+  }, [])
+
+  if (!summary) return null
+
+  const cards = [
+    { label: 'Current Month Revenue', value: summary.currIncome,   color: '#0EA5A0', icon: TrendingUp },
+    { label: 'Current Month Expenses', value: summary.currExpenses, color: '#C0392B', icon: Receipt },
+    { label: 'Revenue YTD',           value: summary.ytdIncome,    color: '#2FA36B', icon: DollarSign },
+    { label: 'Expenses YTD',          value: summary.ytdExpenses,  color: '#7B52AB', icon: Film },
+  ]
+
+  return (
+    <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {cards.map(({ label, value, color, icon: Icon }) => (
+        <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)]">
+          <div className="mb-2 flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
+              <Icon className="h-3.5 w-3.5" style={{ color }} aria-hidden />
+            </div>
+            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
+          </div>
+          <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
+            {formatCurrency(value)}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function App() {
   const [movies, setMovies] = useState(null)
   const [movieBudgetTotals, setMovieBudgetTotals] = useState({})
   const [movieActualTotals, setMovieActualTotals] = useState({})
+  const [movieIncomeTotals, setMovieIncomeTotals] = useState({})
+  const [movieLatestMonth, setMovieLatestMonth] = useState({})      // film_number → 'YYYY-MM-01'
+  const [movieMonthlyExp,  setMovieMonthlyExp]  = useState({})      // film_number → expenses that month
+  const [movieMonthlyInc,  setMovieMonthlyInc]  = useState({})      // film_number → income that month
   const [loadError, setLoadError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchLoading, setSearchLoading] = useState(false)
   const [studioFilter, setStudioFilter] = useState('')
   const [progressSort, setProgressSort] = useState('none')
+  const [hideNoData, setHideNoData] = useState(true)
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false)
+  const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
+  const adminMenuRef = useRef(null)
 
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [budgetRows, setBudgetRows] = useState([])
@@ -419,8 +481,13 @@ export default function App() {
   const [categoryAmountDrafts, setCategoryAmountDrafts] = useState({})
   const [savingCategoryId, setSavingCategoryId] = useState(null)
 
-  const [uploadBusy, setUploadBusy] = useState(false)
-  const [uploadFeedback, setUploadFeedback] = useState(null)
+  const [actualExpensesRows, setActualExpensesRows] = useState([])
+  const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
+  const [actualExpensesError, setActualExpensesError] = useState(null)
+
+  const [incomeRows, setIncomeRows] = useState([])
+  const [incomeLoading, setIncomeLoading] = useState(false)
+  const [incomeError, setIncomeError] = useState(null)
 
   const [addMovieOpen, setAddMovieOpen] = useState(false)
   const [newMovieHebrew, setNewMovieHebrew] = useState('')
@@ -434,36 +501,86 @@ export default function App() {
 
   const refreshMovies = useCallback(async () => {
     try {
-      const [moviesRes, budgetsRes, actualsRes] = await Promise.all([
-        supabase
-          .from('movies')
-          .select('id, movie_name_en, movie_name_he, movie_code, studio_name, release_date')
-          .order('movie_name_en'),
-        supabase.from('budgets').select('movie_id, budgeted_amount'),
-        supabase.from('actual_expenses').select('movie_id, amount'),
+      const [budgetRes, actualRes, rentalRes] = await Promise.allSettled([
+        supabase.from('budgets').select('film_number, amount, planned_amount'),
+        supabase.from('actual_expenses').select('film_number, actual_amount, month_period'),
+        supabase.from('rental_transactions').select('film_number, actual_amount, month_period'),
       ])
 
-      if (moviesRes.error) throw moviesRes.error
-      if (budgetsRes.error) throw budgetsRes.error
-      if (actualsRes.error) throw actualsRes.error
-
-      const totals = {}
-      for (const row of budgetsRes.data ?? []) {
-        const movieUuid = row.movie_id
-        const amount = Number(row.budgeted_amount) || 0
-        totals[movieUuid] = (totals[movieUuid] ?? 0) + amount
+      // Budget totals
+      const budgetTotals = {}
+      const budgetedFns = new Set()
+      for (const row of (budgetRes.status === 'fulfilled' ? budgetRes.value.data : null) ?? []) {
+        if (!row.film_number) continue
+        budgetedFns.add(row.film_number)
+        const amt = Number(row.planned_amount) || Number(row.amount) || 0
+        budgetTotals[row.film_number] = (budgetTotals[row.film_number] ?? 0) + amt
       }
+
+      // Actual expense totals + per-film monthly breakdown
       const actualTotals = {}
-      for (const row of actualsRes.data ?? []) {
-        const movieUuid = row.movie_id
-        const amount = Number(row.amount) || 0
-        actualTotals[movieUuid] = (actualTotals[movieUuid] ?? 0) + amount
+      const latestMonthByFilm = {}        // film → latest month_period seen
+      const monthlyExpByFilm  = {}        // film → { month_period → amount }
+      for (const row of (actualRes.status === 'fulfilled' ? actualRes.value.data : null) ?? []) {
+        if (!row.film_number) continue
+        actualTotals[row.film_number] = (actualTotals[row.film_number] ?? 0) + (Number(row.actual_amount) || 0)
+        if (row.month_period) {
+          if (!latestMonthByFilm[row.film_number] || row.month_period > latestMonthByFilm[row.film_number]) {
+            latestMonthByFilm[row.film_number] = row.month_period
+          }
+          if (!monthlyExpByFilm[row.film_number]) monthlyExpByFilm[row.film_number] = {}
+          const mp = monthlyExpByFilm[row.film_number]
+          mp[row.month_period] = (mp[row.month_period] ?? 0) + (Number(row.actual_amount) || 0)
+        }
+      }
+
+      // Income totals + per-film monthly breakdown
+      const incomeTotals = {}
+      const monthlyIncByFilm = {}
+      for (const row of (rentalRes.status === 'fulfilled' ? rentalRes.value.data : null) ?? []) {
+        if (!row.film_number) continue
+        incomeTotals[row.film_number] = (incomeTotals[row.film_number] ?? 0) + (Number(row.actual_amount) || 0)
+        if (row.month_period) {
+          if (!latestMonthByFilm[row.film_number] || row.month_period > latestMonthByFilm[row.film_number]) {
+            latestMonthByFilm[row.film_number] = row.month_period
+          }
+          if (!monthlyIncByFilm[row.film_number]) monthlyIncByFilm[row.film_number] = {}
+          const mp = monthlyIncByFilm[row.film_number]
+          mp[row.month_period] = (mp[row.month_period] ?? 0) + (Number(row.actual_amount) || 0)
+        }
+      }
+
+      // Latest-month snapshot per film
+      const snapExp = {}, snapInc = {}
+      for (const [fn, latestMonth] of Object.entries(latestMonthByFilm)) {
+        snapExp[fn] = monthlyExpByFilm[fn]?.[latestMonth] ?? 0
+        snapInc[fn] = monthlyIncByFilm[fn]?.[latestMonth] ?? 0
+      }
+
+      // Fetch film details for films with any budget or journal data
+      const uniqueFns = [...new Set([...budgetedFns, ...Object.keys(actualTotals), ...Object.keys(incomeTotals)])]
+      let filmsData = []
+      if (uniqueFns.length > 0) {
+        let from = 0
+        const PAGE = 1000
+        while (true) {
+          const { data: page, error: pageErr } = await supabase
+            .from('films').select('*').in('film_number', uniqueFns).order('title_en').range(from, from + PAGE - 1)
+          if (pageErr) throw pageErr
+          filmsData = filmsData.concat(page ?? [])
+          if (!page || page.length < PAGE) break
+          from += PAGE
+        }
       }
 
       setLoadError(null)
-      setMovies(moviesRes.data ?? [])
-      setMovieBudgetTotals(totals)
+      setMovies(filmsData)
+      setMovieBudgetTotals(budgetTotals)
       setMovieActualTotals(actualTotals)
+      setMovieIncomeTotals(incomeTotals)
+      setMovieLatestMonth(latestMonthByFilm)
+      setMovieMonthlyExp(snapExp)
+      setMovieMonthlyInc(snapInc)
     } catch (err) {
       console.error(err)
       setLoadError(err instanceof Error ? err.message : String(err))
@@ -482,6 +599,10 @@ export default function App() {
       setBudgetRows([])
       setCategoryAmountDrafts({})
       setBudgetError(null)
+      setActualExpensesRows([])
+      setActualExpensesError(null)
+      setIncomeRows([])
+      setIncomeError(null)
       return
     }
 
@@ -490,24 +611,50 @@ export default function App() {
     async function load() {
       setBudgetLoading(true)
       setBudgetError(null)
-      try {
-        const rows = await fetchBudgetRows(selectedMovie.id)
-        if (!cancelled) setBudgetRows(rows)
-      } catch (e) {
-        console.error(e)
-        if (!cancelled) {
-          setBudgetError(e instanceof Error ? e.message : 'Failed to load budget')
-          setBudgetRows([])
-        }
-      } finally {
-        if (!cancelled) setBudgetLoading(false)
+      setActualExpensesLoading(true)
+      setActualExpensesError(null)
+      setIncomeLoading(true)
+      setIncomeError(null)
+
+      const [budgetResult, actualExpResult, incomeResult] = await Promise.allSettled([
+        fetchBudgetRows(selectedMovie.film_number),
+        fetchActualExpensesRows(selectedMovie.film_number),
+        fetchIncomeRows(selectedMovie.film_number),
+      ])
+
+      if (cancelled) return
+
+      if (budgetResult.status === 'fulfilled') {
+        setBudgetRows(budgetResult.value)
+      } else {
+        console.error(budgetResult.reason)
+        setBudgetError(budgetResult.reason?.message ?? 'Failed to load budget')
+        setBudgetRows([])
       }
+
+      if (actualExpResult.status === 'fulfilled') {
+        setActualExpensesRows(actualExpResult.value)
+      } else {
+        console.error(actualExpResult.reason)
+        setActualExpensesError(actualExpResult.reason?.message ?? 'Failed to load actual expenses')
+        setActualExpensesRows([])
+      }
+
+      if (incomeResult.status === 'fulfilled') {
+        setIncomeRows(incomeResult.value)
+      } else {
+        console.error(incomeResult.reason)
+        setIncomeError(incomeResult.reason?.message ?? 'Failed to load income')
+        setIncomeRows([])
+      }
+
+      setBudgetLoading(false)
+      setActualExpensesLoading(false)
+      setIncomeLoading(false)
     }
 
     load()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [selectedMovie, budgetRefresh])
 
   useEffect(() => {
@@ -522,16 +669,39 @@ export default function App() {
     setCategoryAmountDrafts(next)
   }, [budgetRows, budgetLoading])
 
+  // Debounced server-side search across all films (fires 350 ms after the user stops typing)
+  useEffect(() => {
+    const needle = searchTerm.trim()
+    if (!needle) {
+      setSearchResults([])
+      setSearchLoading(false)
+      return
+    }
+    setSearchLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await supabase
+          .from('films')
+          .select('film_number, title_en, title_he, studio, profit_center')
+          .or(`title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,film_number.ilike.%${needle}%,studio.ilike.%${needle}%,profit_center.ilike.%${needle}%`)
+          .order('title_en')
+          .limit(50)
+        setSearchResults(data ?? [])
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
   async function saveCategoryRow(categoryId) {
     if (!selectedMovie) return
     const draft = categoryAmountDrafts[categoryId]
     if (!draft) return
-    const bRaw = String(draft.budget ?? '')
-      .trim()
-      .replace(/,/g, '')
-    const aRaw = String(draft.actual ?? '')
-      .trim()
-      .replace(/,/g, '')
+    const bRaw = String(draft.budget ?? '').trim().replace(/,/g, '')
+    const aRaw = String(draft.actual ?? '').trim().replace(/,/g, '')
     const b = bRaw === '' ? 0 : Number.parseFloat(bRaw)
     const a = aRaw === '' ? 0 : Number.parseFloat(aRaw)
     if (!Number.isFinite(b) || !Number.isFinite(a)) {
@@ -546,33 +716,12 @@ export default function App() {
     setSavingCategoryId(categoryId)
     setBudgetError(null)
     try {
+      // Upsert budget row (unique on film_number + category)
       const { error: upsertErr } = await supabase.from('budgets').upsert(
-        {
-          movie_id: selectedMovie.id,
-          category_id: categoryId,
-          budgeted_amount: b,
-        },
-        { onConflict: 'movie_id,category_id' },
+        { film_number: selectedMovie.film_number, category: categoryId, amount: b },
+        { onConflict: 'film_number,category' },
       )
       if (upsertErr) throw new Error(upsertErr.message)
-
-      const { error: delErr } = await supabase
-        .from('actual_expenses')
-        .delete()
-        .eq('movie_id', selectedMovie.id)
-        .eq('category_id', categoryId)
-      if (delErr) throw new Error(delErr.message)
-
-      if (a > 0) {
-        const { error: insErr } = await supabase.from('actual_expenses').insert({
-          movie_id: selectedMovie.id,
-          category_id: categoryId,
-          amount: a,
-          expense_date: new Date().toISOString().slice(0, 10),
-          description: 'Manual entry',
-        })
-        if (insErr) throw new Error(insErr.message)
-      }
 
       setBudgetRefresh((n) => n + 1)
       await refreshMovies()
@@ -583,116 +732,14 @@ export default function App() {
     }
   }
 
-  async function processParsedCsv(results) {
-    setUploadFeedback(null)
-
-    if (results.errors?.length) {
-      const first = results.errors[0]
-      setUploadFeedback({
-        type: 'error',
-        message: `CSV parse error: ${first.message} (row ${first.row})`,
-      })
-      return
-    }
-
-    const parsedRows = results.data || []
-    const firstRow = parsedRows.find((row) =>
-      Object.values(row).some((v) => v != null && String(v).trim() !== ''),
-    )
-    const fields = firstRow
-      ? Object.keys(firstRow)
-      : (results.meta?.fields || []).map(normalizeCsvHeader)
-
-    const missing = CSV_REQUIRED_HEADERS.filter((h) => !fields.includes(h))
-    if (missing.length > 0) {
-      setUploadFeedback({
-        type: 'error',
-        message: `Missing required columns: ${missing.join(', ')}. Expected: ${CSV_REQUIRED_HEADERS.join(', ')}, and optionally description.`,
-      })
-      return
-    }
-
-    const dataRows = parsedRows.filter((row) =>
-      Object.values(row).some((v) => v != null && String(v).trim() !== ''),
-    )
-
-    if (dataRows.length === 0) {
-      setUploadFeedback({ type: 'error', message: 'No data rows found in the CSV.' })
-      return
-    }
-
-    setUploadBusy(true)
-    try {
-      const { movieByCode, categoryByNameLower } = await fetchLookupMaps()
-      const { errors, inserts, movieNamePatches } = validateRowsToInserts(
-        dataRows,
-        movieByCode,
-        categoryByNameLower,
-      )
-
-      if (errors.length > 0) {
-        setUploadFeedback({
-          type: 'error',
-          message: errors.slice(0, 25),
-          extra: errors.length > 25 ? `${errors.length - 25} more…` : null,
-        })
-        return
-      }
-
-      await insertActualExpensesInChunks(inserts)
-
-      for (const [movieUuid, patch] of movieNamePatches) {
-        const { error: patchErr } = await supabase.from('movies').update(patch).eq('id', movieUuid)
-        if (patchErr) throw new Error(patchErr.message)
-      }
-
-      setUploadFeedback({
-        type: 'success',
-        message: `Successfully uploaded ${inserts.length} expense row${inserts.length === 1 ? '' : 's'}.${movieNamePatches.size > 0 ? ` Updated names for ${movieNamePatches.size} title${movieNamePatches.size === 1 ? '' : 's'} from CSV.` : ''}`,
-      })
-      setBudgetRefresh((n) => n + 1)
-    } catch (e) {
-      console.error(e)
-      setUploadFeedback({
-        type: 'error',
-        message: e instanceof Error ? e.message : 'Upload failed',
-      })
-    } finally {
-      setUploadBusy(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  function runPapaParse(file) {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: 'greedy',
-      transformHeader: normalizeCsvHeader,
-      complete: (results) => {
-        void processParsedCsv(results)
-      },
-      error: (err) => {
-        setUploadFeedback({ type: 'error', message: err.message || 'Failed to read CSV' })
-        setUploadBusy(false)
-        if (fileInputRef.current) fileInputRef.current.value = ''
-      },
-    })
-  }
-
-  function handleExpenseCsvChange(event) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    runPapaParse(file)
-  }
-
   function handleDragEnd(event) {
     const { active, over } = event
     if (!over || active.id === over.id) return
 
     setMovies((current) => {
       if (!Array.isArray(current)) return current
-      const oldIndex = current.findIndex((m) => m.id === active.id)
-      const newIndex = current.findIndex((m) => m.id === over.id)
+      const oldIndex = current.findIndex((m) => m.film_number === active.id)
+      const newIndex = current.findIndex((m) => m.film_number === over.id)
       if (oldIndex === -1 || newIndex === -1) return current
       return arrayMove(current, oldIndex, newIndex)
     })
@@ -705,7 +752,7 @@ export default function App() {
     const merged = [...DEFAULT_STUDIO_OPTIONS]
     if (Array.isArray(movies)) {
       for (const m of movies) {
-        const s = m.studio_name?.trim()
+        const s = m.studio?.trim()
         if (s && !merged.includes(s)) merged.push(s)
       }
     }
@@ -713,51 +760,53 @@ export default function App() {
     return merged
   }, [movies])
 
+  // Close admin menu on outside click
+  useEffect(() => {
+    if (!adminMenuOpen) return
+    function handler(e) {
+      if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) setAdminMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [adminMenuOpen])
+
+  const isSearching = searchTerm.trim() !== ''
+
   const filteredMovies = useMemo(() => {
-    if (!Array.isArray(movies)) return []
-    const needle = searchTerm.trim().toLowerCase()
-    let base =
-      needle === ''
-        ? [...movies]
-        : movies.filter((m) => {
-            const nameEn = String(m.movie_name_en ?? '').toLowerCase()
-            const nameHe = String(m.movie_name_he ?? '').toLowerCase()
-            const prodCode = String(m.movie_code ?? '').toLowerCase()
-            const studio = String(m.studio_name ?? '').toLowerCase()
-            return (
-              nameEn.includes(needle) ||
-              nameHe.includes(needle) ||
-              prodCode.includes(needle) ||
-              studio.includes(needle)
-            )
-          })
+    let base = isSearching
+      ? [...searchResults]
+      : Array.isArray(movies) ? [...movies] : []
 
     if (studioFilter !== '') {
-      base = base.filter((m) => String(m.studio_name ?? '').trim() === studioFilter)
+      base = base.filter((m) => String(m.studio ?? '').trim() === studioFilter)
     }
 
-    if (progressSort === 'none') return base
-
-    const ratioFor = (movie) => {
-      const budget = Number(movieBudgetTotals[movie.id] ?? 0)
-      const spent = Number(movieActualTotals[movie.id] ?? 0)
-      if (budget <= 0) return spent > 0 ? 1 : 0
-      return spent / budget
+    if (hideNoData && !isSearching) {
+      base = base.filter((m) => {
+        const hasBudget  = (movieBudgetTotals[m.film_number] ?? 0) > 0
+        const hasActual  = (movieActualTotals[m.film_number] ?? 0) > 0
+        const hasIncome  = (movieIncomeTotals[m.film_number] ?? 0) > 0
+        return hasBudget || hasActual || hasIncome
+      })
     }
 
-    base.sort((a, b) => {
-      const ra = ratioFor(a)
-      const rb = ratioFor(b)
-      return progressSort === 'desc' ? rb - ra : ra - rb
-    })
+    if (!isSearching && progressSort !== 'none') {
+      const ratioFor = (movie) => {
+        const budget = Number(movieBudgetTotals[movie.film_number] ?? 0)
+        const spent  = Number(movieActualTotals[movie.film_number] ?? 0)
+        if (budget <= 0) return spent > 0 ? 1 : 0
+        return spent / budget
+      }
+      base.sort((a, b) => {
+        const ra = ratioFor(a), rb = ratioFor(b)
+        return progressSort === 'desc' ? rb - ra : ra - rb
+      })
+    }
+
     return base
   }, [
-    movies,
-    searchTerm,
-    studioFilter,
-    progressSort,
-    movieBudgetTotals,
-    movieActualTotals,
+    movies, searchResults, isSearching, studioFilter, progressSort,
+    hideNoData, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
   ])
 
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
@@ -780,15 +829,15 @@ export default function App() {
   async function handleAddMovieSubmit(e) {
     e.preventDefault()
     setAddMovieError(null)
-    const he = newMovieHebrew.trim()
-    const en = newMovieEnglish.trim()
+    const he   = newMovieHebrew.trim()
+    const en   = newMovieEnglish.trim()
     const code = newMovieCode.trim()
     if (!he && !en) {
       setAddMovieError('Enter at least a Hebrew or English title.')
       return
     }
     if (!code) {
-      setAddMovieError('Movie code is required.')
+      setAddMovieError('Film number is required.')
       return
     }
     const studio = newMovieStudio?.trim()
@@ -799,13 +848,12 @@ export default function App() {
     setAddMovieBusy(true)
     try {
       const payload = {
-        movie_name_en: en,
-        movie_name_he: he || null,
-        movie_code: code,
-        studio_name: studio,
-        release_date: null,
+        film_number: code,
+        title_en:    en || null,
+        title_he:    he || null,
+        studio,
       }
-      const { data, error } = await supabase.from('movies').insert(payload).select().single()
+      const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
       await refreshMovies()
       setSelectedMovie(data)
@@ -825,41 +873,139 @@ export default function App() {
     <div className="min-h-dvh w-full">
       <main className="w-full overflow-x-hidden pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto w-full max-w-7xl px-[clamp(1rem,3.5vw,2.5rem)] pb-[clamp(2rem,6vh,4rem)] pt-[clamp(2.25rem,7vh,5rem)]">
-            <header className="mb-[clamp(2.25rem,5.5vh,3.75rem)] border-b border-[rgba(123,82,171,0.22)] pb-[clamp(1.75rem,4.5vh,3rem)]">
-              <div className="flex min-w-0 items-start gap-3 sm:gap-4">
-                <img
-                  src={tulipLogo}
-                  alt="Tulip Entertainment logo"
-                  className="h-10 w-10 shrink-0 rounded-md object-contain sm:h-12 sm:w-12"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                    <span className="font-['Montserrat',sans-serif] text-xl font-extrabold tracking-[0.06em] text-[#4B4594] sm:text-2xl">
-                      TULIP
-                    </span>
-                    <span className="font-['Montserrat',sans-serif] text-xl font-[700] uppercase tracking-[0.08em] text-[#F9B233] sm:text-2xl sm:tracking-[0.1em]">
-                      Flow
-                    </span>
-                  </p>
-                  <p className="mt-1.5 max-w-prose text-[0.52rem] font-medium uppercase leading-snug tracking-[0.2em] text-[#4B4594]/70 sm:text-[0.55rem] sm:tracking-[0.24em]">
-                    Production finance
-                  </p>
+            <header className="mb-6 border-b border-[rgba(123,82,171,0.22)] pb-6">
+              {/* Logo + primary actions */}
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <img src={tulipLogo} alt="Tulip logo" className="h-10 w-10 shrink-0 rounded-md object-contain" />
+                  <div>
+                    <p className="flex items-baseline gap-2">
+                      <span className="font-['Montserrat',sans-serif] text-xl font-extrabold tracking-[0.06em] text-[#4B4594]">TULIP</span>
+                      <span className="font-['Montserrat',sans-serif] text-xl font-bold uppercase tracking-[0.08em] text-[#F9B233]">Flow</span>
+                    </p>
+                    <p className="text-[0.52rem] font-medium uppercase tracking-[0.2em] text-[#4B4594]/70">Production finance</p>
+                  </div>
+                </div>
+
+                {/* Primary action buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Add Movie */}
+                  <button
+                    type="button"
+                    onClick={() => { setAddMovieError(null); setAddMovieOpen(true) }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.28)] bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden /> Add New Movie
+                  </button>
+
+                  {/* Upload Budget */}
+                  <ExcelUploadButton
+                    initialType="budgets"
+                    label="Upload Budget"
+                    onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(47,163,107,0.35)] transition hover:bg-[#28915f]"
+                  />
+
+                  {/* Upload Monthly Journal */}
+                  <ExcelUploadButton
+                    initialType="journal"
+                    label="Upload Monthly Journal"
+                    onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
+                  />
+
+                  {/* Admin dropdown */}
+                  <div className="relative" ref={adminMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setAdminMenuOpen(v => !v)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4A148C] transition hover:bg-[#F7F2FF]"
+                    >
+                      <Settings className="h-3.5 w-3.5" aria-hidden /> Admin <ChevronDown className="h-3 w-3" />
+                    </button>
+                    {adminMenuOpen && (
+                      <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[200px] overflow-hidden rounded-xl border border-[rgba(74,20,140,0.15)] bg-white shadow-[0_16px_40px_rgba(74,20,140,0.18)]">
+                        {/* Manage Films */}
+                        <div className="border-b border-[rgba(74,20,140,0.08)] px-2 pb-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => { setAdminMenuOpen(false); setFilmsManagerOpen(true) }}
+                            className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
+                          >
+                            ✏️ Manage Films
+                          </button>
+                        </div>
+                        <p className="px-3.5 pt-3 pb-1 text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Catalog Imports</p>
+                        {[
+                          { key: 'films',         label: 'Films list' },
+                          { key: 'expenses',      label: 'Expenses catalog' },
+                          { key: 'rentals',       label: 'Rentals catalog' },
+                          { key: 'actual_expenses',      label: 'Monthly Expenses' },
+                          { key: 'rental_transactions',  label: 'Monthly Income' },
+                        ].map(({ key, label }) => (
+                          <div key={key} className="px-2 py-0.5">
+                            <ExcelUploadButton
+                              initialType={key}
+                              label={label}
+                              onUploadSuccess={() => { setAdminMenuOpen(false); setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                              className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-medium text-[#5B4B7A] transition hover:bg-[#F7F2FF] flex items-center gap-2"
+                            />
+                          </div>
+                        ))}
+                        <div className="p-2 pt-1" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </header>
 
+            {/* Monthly summary row */}
+            {movies !== null && !loadError && <DashboardSummaryRow />}
+
           {movies === null && (
-            <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/96 p-16 text-center shadow-[0_18px_45px_rgba(74,20,140,0.1)] backdrop-blur-sm">
-              <p className="text-[#6A5B88]">Loading titles…</p>
+            <div className="flex items-center justify-center py-32">
+              <div className="flex items-center gap-3 text-[#6A5B88]">
+                <Loader2 className="h-5 w-5 animate-spin text-[#4B4594]" aria-hidden />
+                <span className="text-sm font-medium">Loading…</span>
+              </div>
             </div>
           )}
 
-          {loadError && (
-            <div
-              className="rounded-xl border border-red-500/30 bg-red-950/20 px-5 py-4 text-sm text-red-100 backdrop-blur-md"
-              role="alert"
-            >
-              {loadError}
+          {/* Error + get-started screen — always shows the Import button */}
+          {movies !== null && loadError && (
+            <div className="mx-auto max-w-lg rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white p-8 text-center shadow-[0_24px_56px_rgba(74,20,140,0.14)]">
+              <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 ring-1 ring-red-200">
+                <span className="text-2xl">⚠️</span>
+              </div>
+              <h2 className="mb-2 font-['Montserrat',sans-serif] text-lg font-bold text-[#4B4594]">
+                Could not load films
+              </h2>
+              <p className="mb-1 text-sm text-[#6A5B88]">
+                The <code className="rounded bg-[#F4F1FF] px-1.5 py-0.5 text-xs text-[#4A148C]">films</code> table
+                returned an error. Make sure the table exists in Supabase.
+              </p>
+              <p className="mb-6 rounded-lg bg-red-50 px-3 py-2 text-left font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-red-700 ring-1 ring-red-100">
+                {loadError}
+              </p>
+              <p className="mb-4 text-sm font-medium text-[#5B4B7A]">
+                If the table exists but is empty, use the Import button below to upload your film list from Excel.
+              </p>
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                <ExcelUploadButton
+                  onUploadSuccess={() => {
+                    setBudgetRefresh((n) => n + 1)
+                    void refreshMovies()
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void refreshMovies()}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-xs font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]"
+                >
+                  Retry connection
+                </button>
+              </div>
             </div>
           )}
 
@@ -870,109 +1016,58 @@ export default function App() {
                 <div
                   className={`rounded-2xl ${brandBorder} bg-white/88 p-4 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))]`}
                 >
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]">
-                      Movies
+                      Active Films
                     </h2>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="flex items-center gap-2">
+                      {/* Sort by progress */}
                       <button
                         type="button"
-                        onClick={() =>
-                          setProgressSort((s) =>
-                            s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none',
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#4A148C] shadow-[0_8px_16px_rgba(74,20,140,0.12)] transition hover:bg-[#F7F2FF]"
+                        onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]"
                         title="Sort by budget progress"
                       >
                         <ArrowUpDown className="h-3 w-3" aria-hidden />
-                        {progressSort === 'none'
-                          ? 'Sort'
-                          : progressSort === 'desc'
-                            ? 'High %'
-                            : 'Low %'}
+                        {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
                       </button>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <div className="group relative z-40">
-                          <button
-                            type="button"
-                            disabled={uploadBusy}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#F9B233] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4B4594] shadow-[0_10px_22px_rgba(249,178,51,0.35)] transition hover:bg-[#fbc050] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4B4594]/50 disabled:opacity-60"
-                            aria-describedby="csv-format-tooltip"
-                            title="Hover or focus to see CSV column format"
-                          >
-                            <Upload className="h-3 w-3" aria-hidden />
-                            CSV
-                          </button>
-                          <div
-                            id="csv-format-tooltip"
-                            role="tooltip"
-                            className="pointer-events-none absolute right-0 top-full z-[100] mt-2 w-[min(19rem,calc(100vw-2rem))] rounded-xl border border-[rgba(74,20,140,0.16)] bg-white p-3 text-left text-[11px] leading-snug text-[#5B4B7A] opacity-0 shadow-[0_22px_48px_rgba(74,20,140,0.18)] ring-1 ring-[rgba(74,20,140,0.06)] transition duration-200 ease-out group-hover:opacity-100 group-focus-within:opacity-100"
-                          >
-                            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">
-                              Expense CSV
-                            </p>
-                            <p className="mt-2 text-[10px] leading-relaxed text-[#7C6D98]">
-                              Required header row (comma-separated):
-                            </p>
-                            <pre className="mt-1.5 max-h-24 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded-lg bg-[#F7F4FC] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-relaxed text-[#4B4594]">
-                              movie_code,category_name,amount,date,description
-                            </pre>
-                            <p className="mt-2 text-[10px] text-[#7C6D98]">Example data row:</p>
-                            <pre className="mt-1 max-h-20 overflow-x-auto rounded-lg bg-[#FFFBF0] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] text-[#5B4B7A]">
-                              WB001,TV,1500,2026-04-01,April spend
-                            </pre>
-                            <div className="mt-3 border-t border-[rgba(74,20,140,0.1)] pt-3">
-                              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">
-                                Optional (per row)
-                              </p>
-                              <p className="mt-1.5 text-[10px] leading-relaxed text-[#7C6D98]">
-                                Updates display names for that movie when present:
-                              </p>
-                              <p className="mt-1 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] text-[#4B4594]">
-                                movie_name_en, movie_name_he
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAddMovieError(null)
-                            setAddMovieOpen(true)
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.28)] bg-[#4B4594] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
-                        >
-                          <Plus className="h-3 w-3" aria-hidden />
-                          Add new movie
-                        </button>
-                      </div>
+                      {/* Hide no-data toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setHideNoData(v => !v)}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}
+                        title="Toggle showing films with no financial data"
+                      >
+                        {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
+                        {hideNoData ? 'Active only' : 'All films'}
+                      </button>
                     </div>
                   </div>
-
-                  <input
-                    id="expense-csv-input"
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv,text/csv"
-                    className="sr-only"
-                    onChange={handleExpenseCsvChange}
-                    disabled={uploadBusy}
-                    aria-label="CSV file for expense upload"
-                  />
 
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
                     <div
                       className={`flex min-h-[2.5rem] flex-1 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}
                     >
-                      <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
+                      {searchLoading
+                        ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
+                        : <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
+                      }
                       <input
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Search name, movie code, or studio…"
+                        placeholder="Search all films by name, code, or studio…"
                         className="w-full min-w-0 bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
                       />
+                      {searchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]"
+                          aria-label="Clear search"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                     <div className="flex min-h-[2.5rem] shrink-0 items-center gap-2 sm:min-w-[11rem]">
                       <label
@@ -997,45 +1092,31 @@ export default function App() {
                     </div>
                   </div>
 
-                  {uploadFeedback && (
-                    <div
-                      className={`mb-3 rounded-md border px-3 py-2 text-xs ${
-                        uploadFeedback.type === 'success'
-                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                          : 'border-red-500/35 bg-red-500/10 text-red-100'
-                      }`}
-                      role={uploadFeedback.type === 'error' ? 'alert' : 'status'}
-                    >
-                      {typeof uploadFeedback.message === 'string'
-                        ? uploadFeedback.message
-                        : `Upload has ${uploadFeedback.message.length} validation issue(s).`}
-                    </div>
-                  )}
-
                   {filteredMovies.length === 0 ? (
                     <p className="py-6 text-center text-sm text-[#4A148C]">
                       {movies.length === 0
                         ? 'No movies yet. Use “Add new movie” to create a title.'
-                        : 'No movies match your search or studio filter.'}
+                        : 'No films match the current studio filter.'}
                     </p>
                   ) : (
                     <div className="movie-list-scroll lg:h-[calc(100%-6.5rem)] lg:overflow-y-auto lg:pr-1">
                       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                         <SortableContext
-                          items={filteredMovies.map((m) => m.id)}
+                          items={filteredMovies.map((m) => m.film_number)}
                           strategy={verticalListSortingStrategy}
                         >
                           <ul className="grid gap-2.5">
                             {filteredMovies.map((m) => (
-                              <li key={m.id}>
+                              <li key={m.film_number}>
                                 <SortableMovieCard
                                   movie={m}
-                                  totalBudget={movieBudgetTotals[m.id] ?? 0}
-                                  actualSpent={movieActualTotals[m.id] ?? 0}
-                                  isSelected={selectedMovie?.id === m.id}
-                                  onSelect={() =>
-                                    setSelectedMovie(selectedMovie?.id === m.id ? null : m)
-                                  }
+                                  totalBudget={movieBudgetTotals[m.film_number] ?? 0}
+                                  actualSpent={movieActualTotals[m.film_number] ?? 0}
+                                  latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
+                                  latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
+                                  latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
+                                  isSelected={selectedMovie?.film_number === m.film_number}
+                                  onSelect={() => setSelectedMovie(selectedMovie?.film_number === m.film_number ? null : m)}
                                 />
                               </li>
                             ))}
@@ -1091,13 +1172,42 @@ export default function App() {
                       <p className="mt-2 break-words text-sm font-medium text-[#6A5B88]">
                         {movieStudioAndCodeLabel(selectedMovie)}
                       </p>
-                      {!budgetLoading && !budgetError && budgetRows.length > 0 && (
-                        <KpiSummaryCards
-                          totalBudget={budgetRows.reduce((sum, row) => sum + row.budget, 0)}
-                          totalActual={budgetRows.reduce((sum, row) => sum + row.actual, 0)}
-                          scopeLabel="All categories"
-                        />
+                      {selectedMovie.profit_center && (
+                        <p className="mt-1 text-xs text-[#9A8AB8]">
+                          Profit Center&nbsp;
+                          <span className="font-['JetBrains_Mono',ui-monospace,monospace] font-semibold text-[#7B52AB]">
+                            {selectedMovie.profit_center}
+                          </span>
+                        </p>
                       )}
+                      {/* Budget vs Actual mini-KPI in detail header */}
+                      {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
+                        const filmBudget = movieBudgetTotals[selectedMovie?.film_number] ?? 0
+                        const filmActual = movieActualTotals[selectedMovie?.film_number] ?? 0
+                        const filmIncome = movieIncomeTotals[selectedMovie?.film_number] ?? 0
+                        const variance   = filmBudget - filmActual
+                        return (
+                          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                            {[
+                              { label: 'Total Budget', value: filmBudget, color: '#4B4594' },
+                              { label: 'Total Expenses', value: filmActual, color: '#C0392B' },
+                              { label: 'Total Revenue', value: filmIncome, color: '#0EA5A0' },
+                            ].map(({ label, value, color }) => (
+                              <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-white p-2.5">
+                                <p className="text-[0.55rem] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{label}</p>
+                                <p className="mt-1 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color }}>
+                                  {formatCurrency(value)}
+                                </p>
+                              </div>
+                            ))}
+                            {variance < 0 && (
+                              <div className="col-span-3 rounded-lg bg-[#FFE5EC] px-3 py-1.5 text-center">
+                                <span className="text-xs font-bold text-[#E61E6E]">⚠ Over budget by {formatCurrency(Math.abs(variance))}</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     <div className="px-8 pb-10 pt-4">
@@ -1116,11 +1226,9 @@ export default function App() {
 
                       {!budgetLoading && !budgetError && budgetRows.length === 0 && (
                         <p className="py-8 text-sm leading-relaxed text-[#8A7BAB]">
-                          No expense categories found. Add rows to the{' '}
-                          <code className="rounded border border-[rgba(74,20,140,0.2)] bg-[#F7F2FF] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#4A148C]">
-                            expense_categories
-                          </code>{' '}
-                          table in Supabase.
+                          No budget or expense data yet for this film. Use the{' '}
+                          <span className="font-semibold text-[#4B4594]">Import</span> button to
+                          upload Budgets or Expenses, or save a row manually above.
                         </p>
                       )}
 
@@ -1257,6 +1365,256 @@ export default function App() {
                         </>
                       )}
                     </div>
+
+                    {/* ── Actual Expenses section ───────────────────────── */}
+                    <div className="border-t border-[rgba(74,20,140,0.1)] px-4 pb-6 pt-6 sm:px-8">
+                      <div className="mb-4 flex items-center gap-2">
+                        <Receipt className="h-4 w-4 text-[#C0392B]" aria-hidden />
+                        <h3 className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#C0392B]">
+                          Actual Expenses
+                        </h3>
+                      </div>
+
+                      {actualExpensesLoading && (
+                        <p className="py-6 text-center text-sm text-[#8A7BAB]">Loading expenses…</p>
+                      )}
+
+                      {actualExpensesError && (
+                        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+                          {actualExpensesError}
+                        </p>
+                      )}
+
+                      {!actualExpensesLoading && !actualExpensesError && actualExpensesRows.length === 0 && (
+                        <p className="py-4 text-sm text-[#8A7BAB]">
+                          No expense records yet. Use{' '}
+                          <span className="font-semibold text-[#4B4594]">Import → Monthly Expenses</span>{' '}
+                          to upload monthly actual expense data.
+                        </p>
+                      )}
+
+                      {!actualExpensesLoading && !actualExpensesError && actualExpensesRows.length > 0 && (() => {
+                        const totalActual = actualExpensesRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
+                        const totalBudget = movieBudgetTotals[selectedMovie?.film_number] ?? 0
+                        const variance = totalBudget - totalActual
+                        return (
+                          <>
+                            {/* KPI bar */}
+                            <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl border border-[rgba(192,57,43,0.18)] bg-[#FFF5F5] px-4 py-3 text-center">
+                              <div>
+                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B]">Total Budget</p>
+                                <p className="mt-0.5 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#4B4594]">
+                                  {formatCurrency(totalBudget)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B]">Total Actual</p>
+                                <p className="mt-0.5 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#C0392B]">
+                                  {formatCurrency(totalActual)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B]">Variance</p>
+                                <p className={`mt-0.5 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${variance >= 0 ? 'text-[#2F8A6A]' : 'text-[#C0392B]'}`}>
+                                  {formatCurrency(variance)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-xl border border-[rgba(192,57,43,0.15)] bg-white [-webkit-overflow-scrolling:touch]">
+                              <table className="w-full min-w-[24rem] border-collapse text-sm">
+                                <thead>
+                                  <tr className="border-b border-[rgba(192,57,43,0.12)] bg-[#FFF5F5]">
+                                    <th className="px-3 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B] sm:px-4">
+                                      Category
+                                    </th>
+                                    <th className="hidden px-2 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B] sm:table-cell sm:px-4">
+                                      Type
+                                    </th>
+                                    <th className="px-2 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B] sm:px-4">
+                                      Month
+                                    </th>
+                                    <th className="hidden px-2 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B] sm:table-cell sm:px-4">
+                                      Studio
+                                    </th>
+                                    <th className="px-2 py-3 text-right text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#C0392B] sm:px-4">
+                                      Amount
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {actualExpensesRows.map((row, i) => (
+                                    <tr
+                                      key={i}
+                                      className="border-b border-[rgba(192,57,43,0.07)] last:border-0 hover:bg-[#FFF8F8]"
+                                    >
+                                      <td className="max-w-[12rem] truncate px-3 py-2.5 font-medium text-[#8B2020] sm:px-4">
+                                        {row.expense_description}
+                                      </td>
+                                      <td className="hidden px-2 py-2.5 text-[11px] text-[#6A5B88] sm:table-cell sm:px-4">
+                                        {row.expense_type}
+                                      </td>
+                                      <td className="px-2 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#5B4B7A] sm:px-4">
+                                        {row.month_period ?? '—'}
+                                      </td>
+                                      <td className="hidden px-2 py-2.5 text-[11px] text-[#6A5B88] sm:table-cell sm:px-4">
+                                        {row.studio_name ?? '—'}
+                                      </td>
+                                      <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#C0392B] sm:px-4">
+                                        {formatCurrency(row.actual_amount)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-[rgba(192,57,43,0.18)] bg-[#FFF5F5]">
+                                    <td colSpan={3} className="hidden px-3 py-2.5 text-xs font-semibold text-[#C0392B] sm:table-cell sm:px-4">
+                                      Total
+                                    </td>
+                                    <td className="px-2 py-2.5 text-xs font-semibold text-[#C0392B] sm:hidden sm:px-4">
+                                      Total
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#C0392B] sm:px-4">
+                                      {formatCurrency(totalActual)}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </>
+                        )
+                      })()}
+                    </div>
+
+                    {/* ── Rental Income section ─────────────────────────── */}
+                    <div className="border-t border-[rgba(74,20,140,0.1)] px-4 pb-10 pt-6 sm:px-8">
+                      <div className="mb-4 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-[#0EA5A0]" aria-hidden />
+                        <h3 className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#0EA5A0]">
+                          Rental Income
+                        </h3>
+                      </div>
+
+                      {incomeLoading && (
+                        <p className="py-6 text-center text-sm text-[#8A7BAB]">Loading income…</p>
+                      )}
+
+                      {incomeError && (
+                        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+                          {incomeError}
+                        </p>
+                      )}
+
+                      {!incomeLoading && !incomeError && incomeRows.length === 0 && (
+                        <p className="py-4 text-sm text-[#8A7BAB]">
+                          No income records yet. Use{' '}
+                          <span className="font-semibold text-[#4B4594]">Import → Income</span>{' '}
+                          to upload monthly rental transactions.
+                        </p>
+                      )}
+
+                      {!incomeLoading && !incomeError && incomeRows.length > 0 && (
+                        <>
+                          {/* Income KPI */}
+                          <div className="mb-4 flex items-center gap-3 rounded-xl border border-[rgba(14,165,160,0.2)] bg-[#F0FAFA] px-4 py-3">
+                            <div>
+                              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#0EA5A0]">
+                                Total income
+                              </p>
+                              <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums text-[#0C8A86]">
+                                {formatCurrency(incomeRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0))}
+                              </p>
+                            </div>
+                            <div className="ml-auto text-right">
+                              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#0EA5A0]">
+                                Records
+                              </p>
+                              <p className="mt-0.5 font-semibold tabular-nums text-[#0C8A86]">
+                                {incomeRows.length}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto rounded-xl border border-[rgba(14,165,160,0.18)] bg-white [-webkit-overflow-scrolling:touch]">
+                            <table className="w-full min-w-[22rem] border-collapse text-sm">
+                              <thead>
+                                <tr className="border-b border-[rgba(14,165,160,0.14)] bg-[#F0FAFA]">
+                                  <th className="px-3 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0] sm:px-4">
+                                    Category
+                                  </th>
+                                  <th className="hidden px-2 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0] sm:table-cell sm:px-4">
+                                    Format
+                                  </th>
+                                  <th className="px-2 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0] sm:px-4">
+                                    Month
+                                  </th>
+                                  <th className="px-2 py-3 text-right text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0] sm:px-4">
+                                    Amount
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {incomeRows.map((row, i) => (
+                                  <tr
+                                    key={i}
+                                    className="border-b border-[rgba(14,165,160,0.08)] last:border-0 hover:bg-[#F5FDFD]"
+                                  >
+                                    <td className="max-w-[12rem] truncate px-3 py-2.5 font-medium text-[#0C8A86] sm:px-4">
+                                      {row.income_description}
+                                    </td>
+                                    <td className="hidden px-2 py-2.5 text-[11px] text-[#6A5B88] sm:table-cell sm:px-4">
+                                      {row.format_type}
+                                    </td>
+                                    <td className="px-2 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#5B4B7A] sm:px-4">
+                                      {row.month_period ?? '—'}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#0C8A86] sm:px-4">
+                                      {formatCurrency(row.actual_amount)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="border-t border-[rgba(14,165,160,0.2)] bg-[#F0FAFA]">
+                                  <td colSpan={2} className="hidden px-3 py-2.5 text-xs font-semibold text-[#0EA5A0] sm:table-cell sm:px-4">
+                                    Total
+                                  </td>
+                                  <td className="px-2 py-2.5 text-xs font-semibold text-[#0EA5A0] sm:hidden sm:px-4">
+                                    Total
+                                  </td>
+                                  <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#0C8A86] sm:px-4">
+                                    {formatCurrency(incomeRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0))}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── Accumulated Trend Chart ─────────────────── */}
+                      {(actualExpensesRows.length > 0 || incomeRows.length > 0) && (
+                        <div className="mt-6">
+                          <div className="mb-3 flex items-center gap-2">
+                            <TrendingUp className="h-4 w-4 text-[#4B4594]" aria-hidden />
+                            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4A148C]">
+                              Accumulated Trend
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#FAFAFE] p-4">
+                            <TrendChart filmNumber={selectedMovie.film_number} />
+                            <div className="mt-2 flex items-center gap-4 justify-center">
+                              <span className="flex items-center gap-1.5 text-[10px] text-[#8A7BAB]">
+                                <span className="inline-block h-2 w-4 rounded-full bg-[#C0392B]" /> Accum. Expenses
+                              </span>
+                              <span className="flex items-center gap-1.5 text-[10px] text-[#8A7BAB]">
+                                <span className="inline-block h-2 w-4 rounded-full bg-[#0EA5A0]" /> Accum. Revenue
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </section>
@@ -1265,6 +1623,10 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {filmsManagerOpen && (
+        <FilmsManagementModal onClose={() => { setFilmsManagerOpen(false); void refreshMovies() }} />
+      )}
 
       {addMovieOpen && (
         <div
@@ -1333,7 +1695,7 @@ export default function App() {
               </div>
               <div>
                 <label htmlFor="movie-code" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                  Movie code
+                  Film number
                 </label>
                 <input
                   id="movie-code"
@@ -1342,7 +1704,7 @@ export default function App() {
                   onChange={(e) => setNewMovieCode(e.target.value)}
                   autoComplete="off"
                   className="w-full rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-sm text-[#4A148C] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/25"
-                  placeholder="Production movie_code (CSV movie_code column)"
+                  placeholder="e.g. WB001 — must match the Film number column in Excel"
                 />
               </div>
               <div>
