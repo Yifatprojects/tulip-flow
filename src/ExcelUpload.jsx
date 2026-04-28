@@ -933,11 +933,15 @@ async function previewJournal(file, month, year) {
 
     resolvedFilms.add(filmNumber)
 
+    const PRINT_PREFIXES = ['950', '940', '930']
+    const isPrint = PRINT_PREFIXES.some((p) => String(row.priority_code).startsWith(p))
+
     const entry = {
       film_number:   filmNumber,
       priority_code: row.priority_code,
       actual_amount: row.actual_amount,
       month_period:  monthPeriod,
+      is_print:      isPrint,
     }
 
     if (expCodeSet.has(row.priority_code)) {
