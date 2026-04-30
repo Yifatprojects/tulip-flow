@@ -1034,7 +1034,7 @@ async function executeJournalUpload(preview, mode) {
 // ─── Components ──────────────────────────────────────────────────────────────
 
 /** Trigger button — drop into any toolbar */
-export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, className, contextFilm }) {
+export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, className, contextFilm, lockType = false }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -1054,6 +1054,7 @@ export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialTy
         <ExcelUploadModal
           initialType={initialType}
           contextFilm={contextFilm}
+          lockType={lockType}
           onClose={(result) => {
             if (result) onUploadSuccess?.(result)
             setOpen(false)
@@ -1068,7 +1069,7 @@ export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialTy
   )
 }
 
-function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm }) {
+function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockType = false }) {
   const [uploadType, setUploadType] = useState(initialType ?? 'films')
   const [file, setFile]             = useState(null)
   const [busy, setBusy]             = useState(false)
@@ -1438,8 +1439,9 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm }) {
           {step === 'select' && (
           <>
 
-          {/* Data-type selector — hidden when opened from a specific movie card */}
+          {/* Data-type selector */}
           {contextFilm ? (
+            /* ── Opened from a specific movie's budget card ── */
             <div className="mb-5 flex items-center gap-3 rounded-xl border border-[rgba(47,163,107,0.3)] bg-[#F0FBF5] px-4 py-3">
               <Film className="h-5 w-5 shrink-0 text-[#2FA36B]" aria-hidden />
               <div className="min-w-0">
@@ -1455,7 +1457,16 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm }) {
                 )}
               </div>
             </div>
+          ) : lockType ? (
+            /* ── Opened from the general Upload Budget button — any movie, budgets only ── */
+            <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-[rgba(47,163,107,0.25)] bg-[#F0FBF5] px-4 py-2.5">
+              <Receipt className="h-4 w-4 shrink-0 text-[#2FA36B]" aria-hidden />
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-[#2FA36B]">
+                Budget import — any movie
+              </p>
+            </div>
           ) : (
+            /* ── Full type selector (Admin / other entry points) ── */
             <div className="mb-5">
               <p className="mb-2 text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">
                 Select data type
