@@ -1073,7 +1073,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType }) {
   const [busy, setBusy]             = useState(false)
   const [feedback, setFeedback]     = useState(null)
   const [dragOver, setDragOver]     = useState(false)
-  const [showGuide, setShowGuide]   = useState(true)
+  const [showGuide, setShowGuide]   = useState(false)
   const [step, setStep]             = useState('select')   // 'select' | 'confirm'
   const [preview, setPreview]       = useState(null)
   const [journalMonth, setJournalMonth] = useState(new Date().getMonth() + 1)
@@ -1488,74 +1488,6 @@ function ExcelUploadModal({ onClose, onSuccess, initialType }) {
             </div>
           )}
 
-          {/* Column mapping guide */}
-          <div className="mb-5 overflow-hidden rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#F7F4FC]">
-            <button
-              type="button"
-              onClick={() => setShowGuide((v) => !v)}
-              className="flex w-full items-center justify-between px-3.5 py-2.5 text-left"
-            >
-              <span className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">
-                <TableProperties className="h-3.5 w-3.5" aria-hidden />
-                Column mapping guide
-              </span>
-              {showGuide
-                ? <ChevronUp   className="h-3.5 w-3.5 text-[#8A7BAB]" aria-hidden />
-                : <ChevronDown className="h-3.5 w-3.5 text-[#8A7BAB]" aria-hidden />
-              }
-            </button>
-
-            {showGuide && (
-              <div className="border-t border-[rgba(74,20,140,0.08)] px-3.5 pb-4 pt-3">
-                {/* Mapping table */}
-                <p className="mb-2 text-[10px] text-[#7C6D98]">
-                  Excel column headers map to Supabase columns:
-                </p>
-                <div className="overflow-hidden rounded-lg border border-[rgba(74,20,140,0.1)] bg-white text-[10px]">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="border-b border-[rgba(74,20,140,0.08)] bg-[#F4F0FF]">
-                        <th className="px-2.5 py-1.5 text-left font-semibold text-[#4A148C]">Excel header</th>
-                        <th className="px-2.5 py-1.5 text-left font-semibold text-[#4A148C]">→ DB column</th>
-                        <th className="hidden px-2.5 py-1.5 text-left font-medium text-[#8A7BAB] sm:table-cell">Note</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {config.mappingTable.map(([excel, db, note]) => (
-                        <tr key={db} className="border-b border-[rgba(74,20,140,0.06)] last:border-0">
-                          <td className="px-2.5 py-1.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[#4B4594]">
-                            {excel}
-                          </td>
-                          <td className="px-2.5 py-1.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[#2FA36B]">
-                            {db}
-                          </td>
-                          <td className="hidden px-2.5 py-1.5 text-[#9A8AB8] sm:table-cell">{note}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Example rows */}
-                <p className="mb-1 mt-3 text-[10px] text-[#7C6D98]">Example spreadsheet layout:</p>
-                <pre className="overflow-x-auto whitespace-pre rounded-lg bg-white px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-snug text-[#4B4594] ring-1 ring-[rgba(74,20,140,0.1)]">
-                  {config.exampleHeaders}
-                </pre>
-                <pre className="mt-1 overflow-x-auto whitespace-pre rounded-lg bg-[#FFFBF0] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-snug text-[#5B4B7A] ring-1 ring-[rgba(249,178,51,0.2)]">
-                  {config.exampleRow}
-                </pre>
-
-                {config.requiresFilmCheck && (
-                  <p className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] leading-relaxed text-red-700">
-                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-                    Film numbers must already exist in the <strong>Films</strong> table.
-                    Import Films first.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* ── Success card ─────────────────────────────────────────────────── */}
           {feedback?.type === 'success' ? (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4" role="status">
@@ -1677,6 +1609,65 @@ function ExcelUploadModal({ onClose, onSuccess, initialType }) {
                   </div>
                 </div>
               )}
+
+              {/* Column mapping guide — collapsed by default, below the drop zone */}
+              <div className="mt-2 overflow-hidden rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#F7F4FC]">
+                <button
+                  type="button"
+                  onClick={() => setShowGuide((v) => !v)}
+                  className="flex w-full items-center justify-between px-3.5 py-2.5 text-left"
+                >
+                  <span className="flex items-center gap-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">
+                    <TableProperties className="h-3.5 w-3.5" aria-hidden />
+                    Column mapping guide
+                  </span>
+                  {showGuide
+                    ? <ChevronUp   className="h-3.5 w-3.5 text-[#8A7BAB]" aria-hidden />
+                    : <ChevronDown className="h-3.5 w-3.5 text-[#8A7BAB]" aria-hidden />
+                  }
+                </button>
+
+                {showGuide && (
+                  <div className="border-t border-[rgba(74,20,140,0.08)] px-3.5 pb-4 pt-3">
+                    <p className="mb-2 text-[10px] text-[#7C6D98]">
+                      Excel column headers map to Supabase columns:
+                    </p>
+                    <div className="overflow-hidden rounded-lg border border-[rgba(74,20,140,0.1)] bg-white text-[10px]">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="border-b border-[rgba(74,20,140,0.08)] bg-[#F4F0FF]">
+                            <th className="px-2.5 py-1.5 text-left font-semibold text-[#4A148C]">Excel header</th>
+                            <th className="px-2.5 py-1.5 text-left font-semibold text-[#4A148C]">→ DB column</th>
+                            <th className="hidden px-2.5 py-1.5 text-left font-medium text-[#8A7BAB] sm:table-cell">Note</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {config.mappingTable.map(([excel, db, note]) => (
+                            <tr key={db} className="border-b border-[rgba(74,20,140,0.06)] last:border-0">
+                              <td className="px-2.5 py-1.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[#4B4594]">{excel}</td>
+                              <td className="px-2.5 py-1.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[#2FA36B]">{db}</td>
+                              <td className="hidden px-2.5 py-1.5 text-[#9A8AB8] sm:table-cell">{note}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="mb-1 mt-3 text-[10px] text-[#7C6D98]">Example spreadsheet layout:</p>
+                    <pre className="overflow-x-auto whitespace-pre rounded-lg bg-white px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-snug text-[#4B4594] ring-1 ring-[rgba(74,20,140,0.1)]">
+                      {config.exampleHeaders}
+                    </pre>
+                    <pre className="mt-1 overflow-x-auto whitespace-pre rounded-lg bg-[#FFFBF0] px-2.5 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] leading-snug text-[#5B4B7A] ring-1 ring-[rgba(249,178,51,0.2)]">
+                      {config.exampleRow}
+                    </pre>
+                    {config.requiresFilmCheck && (
+                      <p className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] leading-relaxed text-red-700">
+                        <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                        Film numbers must already exist in the <strong>Films</strong> table. Import Films first.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </>
           )}
           </>

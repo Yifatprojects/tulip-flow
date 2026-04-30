@@ -512,6 +512,7 @@ export default function App() {
   const [budgetError, setBudgetError] = useState(null)
   const [budgetRefresh, setBudgetRefresh] = useState(0)
   const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const [budgetFilter, setBudgetFilter] = useState('all') // 'all' | 'media' | 'nonmedia'
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -643,6 +644,7 @@ export default function App() {
       setIncomeRows([])
       setIncomeError(null)
       setExpandedGroups(new Set())
+      setBudgetFilter('all')
       return
     }
 
@@ -1279,10 +1281,30 @@ export default function App() {
 
               {/* ── Main budget table ── */}
               {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
-                // Grand totals — sum planned across all rows; sum actual once per group
-                const grandBudget   = budgetRows.reduce((s, r) => s + r.budget, 0)
-                const grandActual   = [...groups.keys()].reduce((s, key) => s + (actualByCode[key] ?? 0), 0)
-                const grandVariance = grandBudget - grandActual
+                const hasMediaFlag = budgetRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
+
+                // Split groups into media / non-media / unknown buckets
+                const mediaGroups    = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia === true)
+                const nonMediaGroups = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia === false)
+                const unknownGroups  = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia !== true && rows[0]?.isMedia !== false)
+
+                // Apply active filter
+                const visibleGroups =
+                  budgetFilter === 'media'    ? mediaGroups :
+                  budgetFilter === 'nonmedia' ? nonMediaGroups :
+                  /* all — media first, then non-media, then unknown */
+                  [...mediaGroups, ...nonMediaGroups, ...unknownGroups]
+
+                // Totals scoped to visible groups only
+                const calcTotals = (entries) => {
+                  const planned = entries.reduce((s, [, { rows }]) => s + rows.reduce((a, r) => a + r.budget, 0), 0)
+                  const actual  = entries.reduce((s, [key]) => s + (actualByCode[key] ?? 0), 0)
+                  return { planned, actual, variance: planned - actual }
+                }
+
+                const mediaTotals    = calcTotals(mediaGroups)
+                const nonMediaTotals = calcTotals(nonMediaGroups)
+                const visibleTotals  = calcTotals(visibleGroups)
 
                 const toggleGroup = (key) => setExpandedGroups(prev => {
                   const next = new Set(prev)
@@ -1290,28 +1312,93 @@ export default function App() {
                   return next
                 })
 
-                const hasMediaFlag = budgetRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
+                const renderGroup = ([groupKey, { code, rows }]) => {
+                  const groupBudget   = rows.reduce((s, r) => s + r.budget, 0)
+                  const groupActual   = actualByCode[groupKey] ?? 0
+                  const groupVariance = groupBudget - groupActual
+                  const isExpanded    = expandedGroups.has(groupKey)
+                  const firstRow      = rows[0]
+                  const parentBg = firstRow?.isMedia === true ? 'bg-[#EFF6FF]' : firstRow?.isMedia === false ? 'bg-[#FFFBEB]' : 'bg-slate-50'
+                  const childBg  = firstRow?.isMedia === true ? 'bg-white hover:bg-[#F0F8FF]' : firstRow?.isMedia === false ? 'bg-white hover:bg-[#FFFDF0]' : 'bg-white hover:bg-slate-50'
+
+                  return (
+                    <React.Fragment key={groupKey}>
+                      <tr className={`cursor-pointer border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors`} onClick={() => toggleGroup(groupKey)}>
+                        <td className="px-4 py-3 font-bold text-[#2D1B69]">
+                          <span className="mr-2 text-[10px] text-[#7B52AB]">{isExpanded ? '▾' : '▸'}</span>
+                          {code || 'No Code'}
+                          <span className="ml-2 text-[10px] font-normal text-[#9A8AB8]">({rows.length})</span>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-medium text-[#8A7BAB]">—</td>
+                        <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums text-[#2D1B69]">{formatCurrency(groupBudget)}</td>
+                        <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums" style={{ color: groupActual > 0 ? '#B91C1C' : '#C4B8D8' }}>
+                          {groupActual > 0 ? formatCurrency(groupActual) : '—'}
+                        </td>
+                        <td className={`px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums ${groupActual > 0 ? varianceCellClass(groupVariance) : 'text-[#C4B8D8]'}`}>
+                          {groupActual > 0 ? formatCurrency(groupVariance) : '—'}
+                        </td>
+                      </tr>
+                      {isExpanded && rows.map((row, i) => (
+                        <tr key={i} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
+                          <td className="py-2 pl-9 pr-4 text-[12.5px] text-[#5B4B7A]">{row.categoryName}</td>
+                          <td className="px-4 py-2 text-xs text-[#A09ABB]">{row.vendorName || '—'}</td>
+                          <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">{formatCurrency(row.budget)}</td>
+                          <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
+                          <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  )
+                }
+
+                const SectionDivider = ({ label, color, bg }) => (
+                  <tr>
+                    <td colSpan={5} className={`px-4 py-1.5 text-[0.6rem] font-bold uppercase tracking-[0.18em]`} style={{ background: bg, color }}>
+                      {label}
+                    </td>
+                  </tr>
+                )
 
                 return (
                   <>
-                  {/* Legend */}
-                  {hasMediaFlag && (
-                    <div className="mb-4 flex items-center gap-5 rounded-xl border border-[rgba(74,20,140,0.1)] bg-white px-4 py-2.5 text-[11px] font-medium text-[#6A5B88] shadow-sm">
-                      <span className="text-[0.6rem] font-bold uppercase tracking-widest text-[#9A8AB8]">Key:</span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" />
-                        Media spend
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" />
-                        Non-media spend
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="inline-block h-3 w-5 rounded-sm bg-white border border-[rgba(74,20,140,0.15)]" />
-                        Not set
-                      </span>
+                  {/* ── Filter tabs + legend bar ── */}
+                  <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
+                    {/* Filter pills */}
+                    <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-1 shadow-sm">
+                      {[
+                        { id: 'all',      label: 'All' },
+                        { id: 'media',    label: 'Media Only',     bg: 'bg-[#EFF6FF]', activeBg: 'bg-[#BFDBFE]', activeText: 'text-[#1D4ED8]' },
+                        { id: 'nonmedia', label: 'Non-Media Only', bg: 'bg-[#FFFBEB]', activeBg: 'bg-[#FDE68A]', activeText: 'text-[#92400E]' },
+                      ].map(({ id, label, activeBg, activeText }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setBudgetFilter(id)}
+                          className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                            budgetFilter === id
+                              ? id === 'media'    ? 'bg-[#BFDBFE] text-[#1D4ED8]'
+                              : id === 'nonmedia' ? 'bg-[#FDE68A] text-[#92400E]'
+                              : 'bg-[#2D1B69] text-white'
+                              : 'text-[#8A7BAB] hover:bg-slate-50'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                  )}
+
+                    {/* Legend */}
+                    {hasMediaFlag && (
+                      <div className="flex items-center gap-4 text-[11px] font-medium text-[#6A5B88]">
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" /> Media
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" /> Non-media
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
                     <table className="w-full border-collapse text-sm">
@@ -1325,87 +1412,55 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...groups.entries()].map(([groupKey, { code, rows }], gi) => {
-                          const groupBudget   = rows.reduce((s, r) => s + r.budget, 0)
-                          const groupActual   = actualByCode[groupKey] ?? 0
-                          const groupVariance = groupBudget - groupActual
-                          const isExpanded    = expandedGroups.has(groupKey)
-                          const firstRow      = rows[0]
-
-                          // Parent row bg: media=blue tint, non-media=amber tint, unknown=slate
-                          const parentBg =
-                            firstRow?.isMedia === true  ? 'bg-[#EFF6FF]' :
-                            firstRow?.isMedia === false ? 'bg-[#FFFBEB]' :
-                            'bg-slate-50'
-
-                          // Child row bg: slightly lighter version of the same palette
-                          const childBg =
-                            firstRow?.isMedia === true  ? 'bg-white hover:bg-[#F0F8FF]' :
-                            firstRow?.isMedia === false ? 'bg-white hover:bg-[#FFFDF0]' :
-                            'bg-white hover:bg-slate-50'
-
-                          return (
-                            <React.Fragment key={groupKey}>
-                              {/* ── Parent / summary row ── */}
-                              <tr
-                                className={`cursor-pointer border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors`}
-                                onClick={() => toggleGroup(groupKey)}
-                              >
-                                <td className="px-4 py-3 font-bold text-[#2D1B69]">
-                                  <span className="mr-2 text-[10px] text-[#7B52AB]">
-                                    {isExpanded ? '▾' : '▸'}
-                                  </span>
-                                  {code || 'No Code'}
-                                  <span className="ml-2 text-[10px] font-normal text-[#9A8AB8]">
-                                    ({rows.length})
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-xs font-medium text-[#8A7BAB]">—</td>
-                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums text-[#2D1B69]">
-                                  {formatCurrency(groupBudget)}
-                                </td>
-                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums"
-                                    style={{ color: groupActual > 0 ? '#B91C1C' : '#C4B8D8' }}>
-                                  {groupActual > 0 ? formatCurrency(groupActual) : '—'}
-                                </td>
-                                <td className={`px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums ${groupActual > 0 ? varianceCellClass(groupVariance) : 'text-[#C4B8D8]'}`}>
-                                  {groupActual > 0 ? formatCurrency(groupVariance) : '—'}
-                                </td>
-                              </tr>
-
-                              {/* ── Child / detail rows ── */}
-                              {isExpanded && rows.map((row, i) => (
-                                <tr key={i} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
-                                  <td className="py-2 pl-9 pr-4 text-[12.5px] text-[#5B4B7A]">
-                                    <span className="mr-1.5 text-[9px] text-[#C4B8D8]">└</span>
-                                    {row.categoryName}
-                                  </td>
-                                  <td className="px-4 py-2 text-xs text-[#A09ABB]">{row.vendorName || '—'}</td>
-                                  <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">
-                                    {formatCurrency(row.budget)}
-                                  </td>
-                                  <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
-                                  <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
-                                </tr>
-                              ))}
-                            </React.Fragment>
-                          )
-                        })}
+                        {budgetFilter === 'all' && hasMediaFlag ? (
+                          <>
+                            {mediaGroups.length > 0 && (
+                              <><SectionDivider label="Media Spend" color="#1D4ED8" bg="#EFF6FF" />{mediaGroups.map(renderGroup)}</>
+                            )}
+                            {nonMediaGroups.length > 0 && (
+                              <><SectionDivider label="Non-Media Spend" color="#92400E" bg="#FFFBEB" />{nonMediaGroups.map(renderGroup)}</>
+                            )}
+                            {unknownGroups.length > 0 && (
+                              <><SectionDivider label="Other" color="#6A5B88" bg="#F7F4FB" />{unknownGroups.map(renderGroup)}</>
+                            )}
+                          </>
+                        ) : (
+                          visibleGroups.map(renderGroup)
+                        )}
                       </tbody>
                       <tfoot>
+                        {/* Sub-totals row — only shown when filter is 'all' and both types exist */}
+                        {budgetFilter === 'all' && mediaGroups.length > 0 && nonMediaGroups.length > 0 && (
+                          <tr className="border-t border-[rgba(74,20,140,0.1)] bg-[#F7F4FB]">
+                            <td colSpan={2} className="px-4 py-2 text-[11px] text-[#8A7BAB]">
+                              <span className="mr-4">
+                                <span className="inline-block h-2 w-3 rounded-sm bg-[#BFDBFE] mr-1" />
+                                Media: <strong className="text-[#1D4ED8]">{formatCurrency(mediaTotals.planned)}</strong>
+                              </span>
+                              <span>
+                                <span className="inline-block h-2 w-3 rounded-sm bg-[#FDE68A] mr-1" />
+                                Non-media: <strong className="text-[#92400E]">{formatCurrency(nonMediaTotals.planned)}</strong>
+                              </span>
+                            </td>
+                            <td className="px-4 py-2" />
+                            <td className="px-4 py-2" />
+                            <td className="px-4 py-2" />
+                          </tr>
+                        )}
+                        {/* Grand total */}
                         <tr className="border-t-4 border-[#2D1B69] bg-[#2D1B69]">
                           <td colSpan={2} className="px-4 py-3.5 text-sm font-extrabold tracking-wide text-white">
-                            Grand Total
+                            {budgetFilter === 'media' ? 'Media Total' : budgetFilter === 'nonmedia' ? 'Non-Media Total' : 'Grand Total'}
                           </td>
                           <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-white">
-                            {formatCurrency(grandBudget)}
+                            {formatCurrency(visibleTotals.planned)}
                           </td>
                           <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-white/90">
-                            {grandActual > 0 ? formatCurrency(grandActual) : '—'}
+                            {visibleTotals.actual > 0 ? formatCurrency(visibleTotals.actual) : '—'}
                           </td>
                           <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums">
-                            {grandActual > 0
-                              ? <span style={{ color: grandVariance >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{formatCurrency(grandVariance)}</span>
+                            {visibleTotals.actual > 0
+                              ? <span style={{ color: visibleTotals.variance >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{formatCurrency(visibleTotals.variance)}</span>
                               : <span className="text-white/40">—</span>}
                           </td>
                         </tr>
