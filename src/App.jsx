@@ -1222,6 +1222,7 @@ export default function App() {
                 <ExcelUploadButton
                   initialType="budgets"
                   label="Upload Budget"
+                  contextFilm={film}
                   onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
                 />

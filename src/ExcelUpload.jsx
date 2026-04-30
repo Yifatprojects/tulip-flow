@@ -1034,7 +1034,7 @@ async function executeJournalUpload(preview, mode) {
 // ─── Components ──────────────────────────────────────────────────────────────
 
 /** Trigger button — drop into any toolbar */
-export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, className }) {
+export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, className, contextFilm }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -1053,6 +1053,7 @@ export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialTy
       {open && (
         <ExcelUploadModal
           initialType={initialType}
+          contextFilm={contextFilm}
           onClose={(result) => {
             if (result) onUploadSuccess?.(result)
             setOpen(false)
@@ -1067,7 +1068,7 @@ export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialTy
   )
 }
 
-function ExcelUploadModal({ onClose, onSuccess, initialType }) {
+function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm }) {
   const [uploadType, setUploadType] = useState(initialType ?? 'films')
   const [file, setFile]             = useState(null)
   const [busy, setBusy]             = useState(false)
@@ -1121,6 +1122,28 @@ function ExcelUploadModal({ onClose, onSuccess, initialType }) {
     try {
       if (uploadType === 'budgets') {
         const previewData = await previewBudget(file)
+
+        // Cross-movie guard: when opened from a specific movie's budget card,
+        // make sure the file belongs to that movie.
+        if (contextFilm) {
+          const fileFilmNum = String(previewData.filmNumber ?? '').trim().toLowerCase()
+          const ctxFilmNum  = String(contextFilm.film_number ?? '').trim().toLowerCase()
+          const ctxTitleEn  = String(contextFilm.title_en ?? '').trim().toLowerCase()
+          const ctxTitleHe  = String(contextFilm.title_he ?? '').trim().toLowerCase()
+          const fileTitle   = String(previewData.filmTitle  ?? '').trim().toLowerCase()
+
+          const filmNumMatch  = fileFilmNum === ctxFilmNum
+          const titleMatch    = fileTitle && (fileTitle === ctxTitleEn || fileTitle === ctxTitleHe)
+
+          if (!filmNumMatch && !titleMatch) {
+            const ctxLabel  = contextFilm.title_en || contextFilm.title_he || contextFilm.film_number
+            const fileLabel = previewData.filmTitle || previewData.filmNumber || 'unknown'
+            throw new Error(
+              `Wrong file: this budget belongs to "${fileLabel}" but you opened the budget card for "${ctxLabel}".\n\nPlease upload the correct budget file.`
+            )
+          }
+        }
+
         setPreview(previewData)
         setStep('confirm')
       } else if (uploadType === 'journal') {
@@ -1415,43 +1438,61 @@ function ExcelUploadModal({ onClose, onSuccess, initialType }) {
           {step === 'select' && (
           <>
 
-          {/* Data-type selector */}
-          <div className="mb-5">
-            <p className="mb-2 text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">
-              Select data type
-            </p>
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-              {Object.entries(TYPE_CONFIG).map(([key, cfg]) => {
-                const TabIcon = cfg.icon
-                const active  = uploadType === key
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => handleTypeChange(key)}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 ${
-                      active
-                        ? `${cfg.bgColor} ${cfg.borderColor} shadow-sm`
-                        : 'border-[rgba(74,20,140,0.14)] bg-white hover:bg-[#F7F2FF]'
-                    }`}
-                  >
-                    <TabIcon
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: active ? cfg.color : '#9A8AB8' }}
-                      aria-hidden
-                    />
-                    <span
-                      className="text-[10px] font-semibold uppercase tracking-[0.12em]"
-                      style={{ color: active ? cfg.color : '#6A5B88' }}
-                    >
-                      {cfg.label}
-                    </span>
-                  </button>
-                )
-              })}
+          {/* Data-type selector — hidden when opened from a specific movie card */}
+          {contextFilm ? (
+            <div className="mb-5 flex items-center gap-3 rounded-xl border border-[rgba(47,163,107,0.3)] bg-[#F0FBF5] px-4 py-3">
+              <Film className="h-5 w-5 shrink-0 text-[#2FA36B]" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-[#2FA36B]">Budget import for</p>
+                <p className="truncate font-['Montserrat',sans-serif] font-bold text-[#1a7a4e]">
+                  {contextFilm.title_en || contextFilm.title_he || contextFilm.film_number}
+                </p>
+                {contextFilm.film_number && (
+                  <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#2FA36B]">
+                    #{contextFilm.film_number}
+                    {contextFilm.profit_center ? ` · PC ${contextFilm.profit_center}` : ''}
+                  </p>
+                )}
+              </div>
             </div>
-            <p className="mt-2 text-[11px] leading-snug text-[#7C6D98]">{config.description}</p>
-          </div>
+          ) : (
+            <div className="mb-5">
+              <p className="mb-2 text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">
+                Select data type
+              </p>
+              <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                {Object.entries(TYPE_CONFIG).map(([key, cfg]) => {
+                  const TabIcon = cfg.icon
+                  const active  = uploadType === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => handleTypeChange(key)}
+                      className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 ${
+                        active
+                          ? `${cfg.bgColor} ${cfg.borderColor} shadow-sm`
+                          : 'border-[rgba(74,20,140,0.14)] bg-white hover:bg-[#F7F2FF]'
+                      }`}
+                    >
+                      <TabIcon
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: active ? cfg.color : '#9A8AB8' }}
+                        aria-hidden
+                      />
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-[0.12em]"
+                        style={{ color: active ? cfg.color : '#6A5B88' }}
+                      >
+                        {cfg.label}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-[#7C6D98]">{config.description}</p>
+            </div>
+          )}
 
           {/* ── Month / Year selectors (Journal only) ──────────────────────── */}
           {uploadType === 'journal' && (
