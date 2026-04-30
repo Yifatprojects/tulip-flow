@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -145,26 +145,36 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
  * Queries the new `budgets` and `expenses` tables (both keyed by film_number).
  */
 async function fetchBudgetRows(filmNumber) {
-  const { data, error } = await supabase
+  const fullRes = await supabase
     .from('budgets')
-    .select('budget_item_name, planned_amount, media_budget_code')
+    // Try full select first; fall back to core columns if optional ones don't exist in DB yet
+    .select('budget_item_name, planned_amount, media_budget_code, vendor_name, is_media')
     .eq('film_number', filmNumber)
+    .order('media_budget_code', { nullsFirst: false })
+
+  let data, error
+  if (fullRes.error) {
+    const coreRes = await supabase
+      .from('budgets')
+      .select('budget_item_name, planned_amount, media_budget_code')
+      .eq('film_number', filmNumber)
+      .order('media_budget_code', { nullsFirst: false })
+    data  = coreRes.data
+    error = coreRes.error
+  } else {
+    data  = fullRes.data
+    error = fullRes.error
+  }
 
   if (error) throw new Error(error.message)
 
-  // Group by media_budget_code when present, otherwise by budget_item_name
-  const byCat = new Map()
-  for (const b of data ?? []) {
-    const code = b.media_budget_code?.trim() || ''
-    const name = b.budget_item_name?.trim() || 'Uncategorised'
-    const key  = code || name
-    const existing = byCat.get(key) ?? { categoryId: key, categoryName: name, mediaCode: code, budget: 0 }
-    existing.budget += Number(b.planned_amount) || 0
-    byCat.set(key, existing)
-  }
-
-  return [...byCat.values()]
-    .sort((a, b) => (a.mediaCode || a.categoryName).localeCompare(b.mediaCode || b.categoryName))
+  return (data ?? []).map(b => ({
+    categoryName: b.budget_item_name?.trim() || 'Uncategorised',
+    mediaCode:    b.media_budget_code?.trim() || '',
+    vendorName:   b.vendor_name?.trim() || '',
+    budget:       Number(b.planned_amount) || 0,
+    isMedia:      b.is_media ?? null,
+  }))
 }
 
 /**
@@ -501,6 +511,7 @@ export default function App() {
   const [budgetLoading, setBudgetLoading] = useState(false)
   const [budgetError, setBudgetError] = useState(null)
   const [budgetRefresh, setBudgetRefresh] = useState(0)
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -524,7 +535,7 @@ export default function App() {
   const refreshMovies = useCallback(async () => {
     try {
       const [budgetRes, actualRes, rentalRes] = await Promise.allSettled([
-        supabase.from('budgets').select('film_number, amount, planned_amount'),
+        supabase.from('budgets').select('film_number, planned_amount'),
         supabase.from('actual_expenses').select('film_number, actual_amount, month_period, priority_code, is_print'),
         supabase.from('rental_transactions').select('film_number, actual_amount, month_period'),
       ])
@@ -631,6 +642,7 @@ export default function App() {
       setActualExpensesError(null)
       setIncomeRows([])
       setIncomeError(null)
+      setExpandedGroups(new Set())
       return
     }
 
@@ -653,7 +665,11 @@ export default function App() {
       if (cancelled) return
 
       if (budgetResult.status === 'fulfilled') {
-        setBudgetRows(budgetResult.value)
+        const rows = budgetResult.value
+        setBudgetRows(rows)
+        // Start with all groups expanded
+        const keys = new Set(rows.map(r => r.mediaCode || '__none__'))
+        setExpandedGroups(keys)
       } else {
         console.error(budgetResult.reason)
         setBudgetError(budgetResult.reason?.message ?? 'Failed to load budget')
@@ -1143,456 +1159,327 @@ export default function App() {
                 </div>
               </section>
 
-              <section
-                className="min-w-0 rounded-2xl border border-[rgba(74,20,140,0.16)] bg-white/96 shadow-[0_24px_56px_rgba(230,30,110,0.09)] backdrop-blur-sm lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:max-h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))] lg:overflow-y-auto lg:overscroll-contain lg:self-start"
-                aria-labelledby="budget-overview-heading"
-              >
-                {!selectedMovie && (
-                  <div className="flex min-h-[min(22rem,45dvh)] flex-col items-center justify-center px-[clamp(1.5rem,4vw,2.5rem)] py-[clamp(2.5rem,8vh,5rem)] text-center">
-                    <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-[rgba(74,20,140,0.2)] bg-gradient-to-br from-[#F4EFFF] to-[#FFF2E4] text-[#4A148C] shadow-[0_10px_26px_rgba(74,20,140,0.12)]">
-                      <Clapperboard className="h-8 w-8" strokeWidth={1.5} aria-hidden />
-                    </div>
-                    <p className="max-w-sm text-sm leading-relaxed text-[#7C6D98]">
-                      Select a title from the movies to open the budget overview and category
-                      breakdown.
-                    </p>
-                  </div>
-                )}
-
-                {selectedMovie && (
-                  <>
-                    <div className="min-w-0 border-b border-[rgba(74,20,140,0.16)] px-4 py-6 sm:px-8 sm:py-8">
-                      <h2
-                        id="budget-overview-heading"
-                        className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]"
-                      >
-                        Budget overview
-                      </h2>
-                      <p className="mt-3 break-words font-['Montserrat',sans-serif] text-2xl font-extrabold tracking-tight text-[#4A148C]">
-                        {movieTitleEnglish(selectedMovie)}
-                      </p>
-                      {movieTitleHebrewSubtitle(selectedMovie) ? (
-                        <p
-                          className="mt-2 max-w-prose break-words text-left text-sm leading-snug text-[#9A8AB8]"
-                          lang="he"
-                        >
-                          {movieTitleHebrewSubtitle(selectedMovie)}
-                        </p>
-                      ) : null}
-                      <p className="mt-2 break-words text-sm font-medium text-[#6A5B88]">
-                        {movieStudioAndCodeLabel(selectedMovie)}
-                      </p>
-                      {selectedMovie.profit_center && (
-                        <p className="mt-1 text-xs text-[#9A8AB8]">
-                          Profit Center&nbsp;
-                          <span className="font-['JetBrains_Mono',ui-monospace,monospace] font-semibold text-[#7B52AB]">
-                            {selectedMovie.profit_center}
-                          </span>
-                        </p>
-                      )}
-                      {/* Budget vs Actual mini-KPI in detail header */}
-                      {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
-                        const filmBudget  = movieBudgetTotals[selectedMovie?.film_number] ?? 0
-                        const filmSpent   = movieMarketingTotals[selectedMovie?.film_number] ?? 0
-                        const filmIncome  = movieIncomeTotals[selectedMovie?.film_number] ?? 0
-                        const variance    = filmBudget - filmSpent
-                        return (
-                          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                            {[
-                              { label: 'Planned Budget', value: filmBudget, color: '#4B4594' },
-                              { label: 'Total Spent',    value: filmSpent,  color: '#C0392B' },
-                              { label: 'Total Revenue',  value: filmIncome, color: '#0EA5A0' },
-                            ].map(({ label, value, color }) => (
-                              <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-white p-2.5">
-                                <p className="text-[0.55rem] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{label}</p>
-                                <p className="mt-1 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color }}>
-                                  {formatCurrency(value)}
-                                </p>
-                              </div>
-                            ))}
-                            {variance < 0 && (
-                              <div className="col-span-3 rounded-lg bg-[#FFE5EC] px-3 py-2 text-center">
-                                <span className="text-sm font-bold text-[#C0004C]">⚠ Over budget by {formatCurrency(Math.abs(variance))}</span>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </div>
-
-                    <div className="px-8 pb-10 pt-4">
-                      {budgetLoading && (
-                        <p className="py-12 text-center text-sm text-[#8A7BAB]">Loading figures…</p>
-                      )}
-
-                      {budgetError && (
-                        <p
-                          className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100"
-                          role="alert"
-                        >
-                          {budgetError}
-                        </p>
-                      )}
-
-                      {!budgetLoading && !budgetError && budgetRows.length === 0 && (
-                        <p className="py-8 text-sm leading-relaxed text-[#8A7BAB]">
-                          No budget or expense data yet for this film. Use the{' '}
-                          <span className="font-semibold text-[#4B4594]">Import</span> button to
-                          upload Budgets or Expenses, or save a row manually above.
-                        </p>
-                      )}
-
-                      {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
-                        // Build actual totals by media_budget_code from marketing rows only
-                        const actualByCode = {}
-                        for (const r of (actualExpensesRows ?? []).filter(r => !isPrintCode(r.priority_code))) {
-                          const code = r.media_budget_code?.trim() || '__none__'
-                          actualByCode[code] = (actualByCode[code] ?? 0) + (Number(r.actual_amount) || 0)
-                        }
-
-                        const grandBudget   = budgetRows.reduce((s, r) => s + r.budget, 0)
-                        const grandActual   = budgetRows.reduce((s, r) => s + (actualByCode[r.mediaCode] ?? actualByCode['__none__'] ?? 0), 0)
-                        const grandVariance = grandBudget - grandActual
-
-                        return (
-                          <div className="rounded-xl border border-[rgba(74,20,140,0.14)] bg-white">
-                            <table className="w-full border-collapse text-xs">
-                              <thead>
-                                <tr className="border-b border-[rgba(74,20,140,0.12)] bg-[#F7F2FF]">
-                                  <th className="px-3 py-2.5 text-left text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                                    Budget Item
-                                  </th>
-                                  <th className="px-2 py-2.5 text-right text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                                    Planned
-                                  </th>
-                                  <th className="px-2 py-2.5 text-right text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                                    Actual
-                                  </th>
-                                  <th className="px-3 py-2.5 text-right text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                                    Variance
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {budgetRows.map((row) => {
-                                  const actual   = row.mediaCode ? (actualByCode[row.mediaCode] ?? 0) : 0
-                                  const variance = row.budget - actual
-                                  return (
-                                    <tr key={row.categoryId}
-                                        className="border-b border-[rgba(74,20,140,0.07)] last:border-0 hover:bg-[#FDFAFF]">
-                                      {/* Name + code chip + mini bar */}
-                                      <td className="px-3 py-2.5">
-                                        <p className="truncate font-medium leading-tight text-[#5B4B7A]"
-                                           style={{ maxWidth: '11rem' }}>
-                                          {row.categoryName}
-                                        </p>
-                                        {row.mediaCode && (
-                                          <span className="mt-0.5 inline-block rounded bg-[#EDE8F8] px-1.5 py-px font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
-                                            {row.mediaCode}
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] tabular-nums text-[#4B4594]">
-                                        {formatCurrency(row.budget)}
-                                      </td>
-                                      <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] tabular-nums"
-                                          style={{ color: actual > 0 ? '#C0392B' : '#C4B8D8' }}>
-                                        {actual > 0 ? formatCurrency(actual) : '—'}
-                                      </td>
-                                      <td className={`px-3 py-2.5 text-right font-['Montserrat',sans-serif] font-semibold tabular-nums ${actual > 0 ? varianceCellClass(variance) : 'text-[#C4B8D8]'}`}>
-                                        {actual > 0 ? formatCurrency(variance) : '—'}
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                              <tfoot>
-                                <tr className="border-t-2 border-[rgba(74,20,140,0.18)] bg-[#F7F2FF]">
-                                  <td className="px-3 py-2.5 text-[0.65rem] font-bold text-[#4A148C]">
-                                    Total
-                                  </td>
-                                  <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] font-extrabold tabular-nums text-[#4B4594]">
-                                    {formatCurrency(grandBudget)}
-                                  </td>
-                                  <td className="px-2 py-2.5 text-right font-['Montserrat',sans-serif] font-extrabold tabular-nums text-[#C0392B]">
-                                    {grandActual > 0 ? formatCurrency(grandActual) : '—'}
-                                  </td>
-                                  <td className={`px-3 py-2.5 text-right font-['Montserrat',sans-serif] font-extrabold tabular-nums ${grandActual > 0 ? varianceCellClass(grandVariance) : 'text-[#C4B8D8]'}`}>
-                                    {grandActual > 0 ? formatCurrency(grandVariance) : '—'}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          </div>
-                        )
-                      })()}
-                    </div>
-
-                    {/* ── Actual Expenses section ───────────────────────── */}
-                    <div className="border-t border-[rgba(74,20,140,0.1)] px-4 pb-6 pt-6 sm:px-8">
-                      <div className="mb-4 flex items-center gap-2">
-                        <Receipt className="h-4 w-4 text-[#C0392B]" aria-hidden />
-                        <h3 className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#C0392B]">
-                          Actual Expenses
-                        </h3>
-                      </div>
-
-                      {actualExpensesLoading && (
-                        <p className="py-6 text-center text-sm text-[#8A7BAB]">Loading expenses…</p>
-                      )}
-
-                      {actualExpensesError && (
-                        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-                          {actualExpensesError}
-                        </p>
-                      )}
-
-                      {!actualExpensesLoading && !actualExpensesError && actualExpensesRows.filter(r => !isPrintCode(r.priority_code)).length === 0 && (
-                        <p className="py-4 text-sm text-[#8A7BAB]">
-                          No expense records yet. Use{' '}
-                          <span className="font-semibold text-[#4B4594]">Import → Monthly Expenses</span>{' '}
-                          to upload monthly actual expense data.
-                        </p>
-                      )}
-
-                      {!actualExpensesLoading && !actualExpensesError && actualExpensesRows.filter(r => !isPrintCode(r.priority_code)).length > 0 && (() => {
-                        const marketingRows  = actualExpensesRows.filter(r => !isPrintCode(r.priority_code))
-                        const totalMarketing = marketingRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
-                        const totalBudget    = movieBudgetTotals[selectedMovie?.film_number] ?? 0
-                        const balance        = totalBudget - totalMarketing
-
-                        const ExpenseTable = ({ rows, accentColor }) => (
-                          <div className="overflow-x-auto rounded-xl border [-webkit-overflow-scrolling:touch]" style={{ borderColor: `${accentColor}28` }}>
-                            <table className="w-full min-w-[22rem] border-collapse text-sm">
-                              <thead>
-                                <tr className="border-b" style={{ borderColor: `${accentColor}20`, background: `${accentColor}0d` }}>
-                                  {[
-                                    { label: 'Media Budget Code', hide: false, right: false },
-                                    { label: 'Description',       hide: true,  right: false },
-                                    { label: 'Month',             hide: false, right: false },
-                                    { label: 'Amount',            hide: false, right: true  },
-                                  ].map(({ label, hide, right }) => (
-                                    <th key={label}
-                                        className={`px-3 py-2.5 text-[0.6rem] font-semibold uppercase tracking-[0.14em] ${right ? 'text-right' : 'text-left'} ${hide ? 'hidden sm:table-cell' : ''}`}
-                                        style={{ color: accentColor }}>{label}</th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {rows.map((row, i) => {
-                                  const mediaCode = row.media_budget_code?.trim()
-                                    || (row.priority_code ? `[${row.priority_code}]` : 'Unmapped')
-                                  const isMapped  = !!(row.media_budget_code?.trim())
-                                  return (
-                                    <tr key={i} className="border-b last:border-0 transition hover:opacity-80" style={{ borderColor: `${accentColor}0f` }}>
-                                      <td className="px-3 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-xs font-semibold tabular-nums"
-                                          style={{ color: isMapped ? accentColor : '#9A6B00' }}>
-                                        {mediaCode}
-                                        {!isMapped && (
-                                          <span className="ml-1 rounded bg-amber-100 px-1 py-px text-[10px] font-normal text-amber-700">unmapped</span>
-                                        )}
-                                      </td>
-                                      <td className="hidden max-w-[14rem] truncate px-3 py-2 text-[11px] text-[#8A7BAB] sm:table-cell">
-                                        {row.expense_description}
-                                      </td>
-                                      <td className="px-3 py-2 font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#8A7BAB]">{row.month_period?.slice(0,7) ?? '—'}</td>
-                                      <td className="px-3 py-2 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums" style={{ color: accentColor }}>{formatCurrency(row.actual_amount)}</td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                              <tfoot>
-                                <tr className="border-t-2" style={{ borderColor: `${accentColor}30`, background: `${accentColor}0d` }}>
-                                  <td colSpan={2} className="hidden px-3 py-2 text-xs font-bold sm:table-cell" style={{ color: accentColor }}>Total</td>
-                                  <td className="px-3 py-2 text-xs font-bold sm:hidden" style={{ color: accentColor }}>Total</td>
-                                  <td className="px-3 py-2 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color: accentColor }}>
-                                    {formatCurrency(rows.reduce((s,r) => s + (Number(r.actual_amount)||0), 0))}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                          </div>
-                        )
-
-                        return (
-                          <>
-                            {/* Summary cards */}
-                            <div className="mb-5 grid grid-cols-3 gap-3">
-                              {[
-                                { label: 'Planned Budget', value: totalBudget,    color: '#4B4594' },
-                                { label: 'Total Spent',    value: totalMarketing, color: '#C0392B' },
-                                { label: 'Balance',        value: balance,        color: balance >= 0 ? '#2FA36B' : '#E61E6E' },
-                              ].map(({ label, value, color }) => (
-                                <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-white px-3 py-3 text-center">
-                                  <p className="text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">{label}</p>
-                                  <p className="mt-1 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color }}>
-                                    {formatCurrency(value)}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-
-                            {marketingRows.length === 0
-                              ? <p className="py-3 text-center text-xs text-[#8A7BAB]">No expenses recorded.</p>
-                              : <ExpenseTable rows={marketingRows} accentColor="#C0392B" />
-                            }
-                          </>
-                        )
-                      })()}
-                    </div>
-
-                    {/* ── Rental Income section ─────────────────────────── */}
-                    <div className="border-t border-[rgba(74,20,140,0.1)] px-4 pb-10 pt-6 sm:px-8">
-                      <div className="mb-4 flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4 text-[#0EA5A0]" aria-hidden />
-                        <h3 className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#0EA5A0]">
-                          Rental Income
-                        </h3>
-                      </div>
-
-                      {incomeLoading && (
-                        <p className="py-6 text-center text-sm text-[#8A7BAB]">Loading income…</p>
-                      )}
-
-                      {incomeError && (
-                        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-                          {incomeError}
-                        </p>
-                      )}
-
-                      {!incomeLoading && !incomeError && incomeRows.length === 0 && (
-                        <p className="py-4 text-sm text-[#8A7BAB]">
-                          No income records yet. Use{' '}
-                          <span className="font-semibold text-[#4B4594]">Import → Income</span>{' '}
-                          to upload monthly rental transactions.
-                        </p>
-                      )}
-
-                      {!incomeLoading && !incomeError && incomeRows.length > 0 && (() => {
-                        const grandTotal = incomeRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
-
-                        // Group by category (income_description)
-                        const byCategory = new Map()
-                        for (const r of incomeRows) {
-                          const key = r.income_description || r.priority_code || '—'
-                          if (!byCategory.has(key)) byCategory.set(key, { rows: [], total: 0, format_type: r.format_type })
-                          const cat = byCategory.get(key)
-                          cat.rows.push(r)
-                          cat.total += Number(r.actual_amount) || 0
-                        }
-
-                        // Group by month for the monthly summary strip
-                        const byMonth = new Map()
-                        for (const r of incomeRows) {
-                          const m = r.month_period?.slice(0, 7) ?? '—'
-                          byMonth.set(m, (byMonth.get(m) ?? 0) + (Number(r.actual_amount) || 0))
-                        }
-                        const sortedMonths = [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-
-                        return (
-                          <>
-                            {/* KPI strip */}
-                            <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl border border-[rgba(14,165,160,0.2)] bg-[#F0FAFA] px-4 py-3 text-center">
-                              <div>
-                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Total Revenue</p>
-                                <p className="mt-0.5 font-['Montserrat',sans-serif] text-base font-extrabold tabular-nums text-[#0C8A86]">
-                                  {formatCurrency(grandTotal)}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Categories</p>
-                                <p className="mt-0.5 font-semibold tabular-nums text-[#0C8A86]">{byCategory.size}</p>
-                              </div>
-                              <div>
-                                <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Months</p>
-                                <p className="mt-0.5 font-semibold tabular-nums text-[#0C8A86]">{byMonth.size}</p>
-                              </div>
-                            </div>
-
-                            {/* Monthly breakdown strip */}
-                            {sortedMonths.length > 1 && (
-                              <div className="mb-4 flex flex-wrap gap-2">
-                                {sortedMonths.map(([month, total]) => (
-                                  <div key={month} className="flex-1 min-w-[80px] rounded-lg border border-[rgba(14,165,160,0.18)] bg-white px-3 py-2 text-center">
-                                    <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{month}</p>
-                                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-xs font-bold tabular-nums text-[#0C8A86]">
-                                      {formatCurrency(total)}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Summary table by category */}
-                            <div className="overflow-x-auto rounded-xl border border-[rgba(14,165,160,0.18)] bg-white [-webkit-overflow-scrolling:touch]">
-                              <table className="w-full min-w-[22rem] border-collapse text-sm">
-                                <thead>
-                                  <tr className="border-b border-[rgba(14,165,160,0.14)] bg-[#F0FAFA]">
-                                    <th className="px-3 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Category</th>
-                                    <th className="hidden px-3 py-3 text-left text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0] sm:table-cell">Format</th>
-                                    <th className="px-3 py-3 text-center text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Entries</th>
-                                    <th className="px-3 py-3 text-right text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-[#0EA5A0]">Total</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {[...byCategory.entries()].map(([label, { rows, total, format_type }]) => (
-                                    <tr key={label} className="border-b border-[rgba(14,165,160,0.07)] last:border-0 hover:bg-[#F5FDFD]">
-                                      <td className="max-w-[14rem] px-3 py-2.5 font-medium text-[#0C8A86]">{label}</td>
-                                      <td className="hidden px-3 py-2.5 text-[11px] text-[#6A5B88] sm:table-cell">{format_type || '—'}</td>
-                                      <td className="px-3 py-2.5 text-center text-xs tabular-nums text-[#6A5B88]">{rows.length}</td>
-                                      <td className="px-3 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#0C8A86]">
-                                        {formatCurrency(total)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                                <tfoot>
-                                  <tr className="border-t-2 border-[rgba(14,165,160,0.25)] bg-[#F0FAFA]">
-                                    <td colSpan={2} className="hidden px-3 py-2.5 text-xs font-bold text-[#0EA5A0] sm:table-cell">Grand Total</td>
-                                    <td className="px-3 py-2.5 text-xs font-bold text-[#0EA5A0] sm:hidden">Total</td>
-                                    <td className="px-3 py-2.5 text-center text-xs font-semibold tabular-nums text-[#0EA5A0]">{incomeRows.length}</td>
-                                    <td className="px-3 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#0C8A86]">
-                                      {formatCurrency(grandTotal)}
-                                    </td>
-                                  </tr>
-                                </tfoot>
-                              </table>
-                            </div>
-                          </>
-                        )
-                      })()}
-
-                      {/* ── Accumulated Trend Chart ─────────────────── */}
-                      {(actualExpensesRows.length > 0 || incomeRows.length > 0) && (
-                        <div className="mt-6">
-                          <div className="mb-3 flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4 text-[#4B4594]" aria-hidden />
-                            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4A148C]">
-                              Accumulated Trend
-                            </p>
-                          </div>
-                          <div className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#FAFAFE] p-4">
-                            <TrendChart filmNumber={selectedMovie.film_number} />
-                            <div className="mt-2 flex items-center gap-4 justify-center">
-                              <span className="flex items-center gap-1.5 text-[10px] text-[#8A7BAB]">
-                                <span className="inline-block h-2 w-4 rounded-full bg-[#C0392B]" /> Accum. Expenses
-                              </span>
-                              <span className="flex items-center gap-1.5 text-[10px] text-[#8A7BAB]">
-                                <span className="inline-block h-2 w-4 rounded-full bg-[#0EA5A0]" /> Accum. Revenue
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </section>
             </div>
             </>
           )}
         </div>
       </main>
+
+      {/* ── Full-screen Budget Modal ──────────────────────────────────────── */}
+      {selectedMovie && (() => {
+        const film        = selectedMovie
+        const filmBudget  = movieBudgetTotals[film.film_number] ?? 0
+        const filmSpent   = movieMarketingTotals[film.film_number] ?? 0
+        const filmIncome  = movieIncomeTotals[film.film_number] ?? 0
+        const filmBalance = filmBudget - filmSpent
+
+        // Actual totals by media_budget_code (marketing only — no print)
+        const actualByCode = {}
+        for (const r of (actualExpensesRows ?? []).filter(r => !isPrintCode(r.priority_code))) {
+          const code = r.media_budget_code?.trim() || '__none__'
+          actualByCode[code] = (actualByCode[code] ?? 0) + (Number(r.actual_amount) || 0)
+        }
+
+        // Print expense rows from actuals
+        const printRows = (actualExpensesRows ?? []).filter(r => isPrintCode(r.priority_code))
+        const totalPrint = printRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
+
+        // Group budget rows by media_budget_code
+        const groups = new Map()
+        for (const row of (budgetRows ?? [])) {
+          const key = row.mediaCode || '__none__'
+          if (!groups.has(key)) groups.set(key, { code: row.mediaCode, rows: [] })
+          groups.get(key).rows.push(row)
+        }
+
+        const TH = ({ children, right }) => (
+          <th className={`sticky top-0 z-10 border-b-2 border-[rgba(74,20,140,0.18)] bg-[#F7F2FF] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#4A148C] ${right ? 'text-right' : 'text-left'}`}>
+            {children}
+          </th>
+        )
+
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col bg-[#F7F4FB]" role="dialog" aria-modal="true">
+
+            {/* ── Sticky header bar ── */}
+            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgba(74,20,140,0.14)] bg-white px-6 py-4 shadow-sm">
+              <div className="min-w-0">
+                <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Budget Overview</p>
+                <h1 className="truncate font-['Montserrat',sans-serif] text-xl font-extrabold text-[#4A148C]">
+                  {movieTitleEnglish(film)}
+                </h1>
+                {movieTitleHebrewSubtitle(film) && (
+                  <p className="text-sm text-[#9A8AB8]" lang="he">{movieTitleHebrewSubtitle(film)}</p>
+                )}
+                <p className="mt-0.5 text-xs text-[#6A5B88]">
+                  {movieStudioAndCodeLabel(film)}
+                  {film.profit_center && <span className="ml-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ExcelUploadButton
+                  initialType="budgets"
+                  label="Upload Budget"
+                  onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedMovie(null)}
+                  className="flex items-center gap-2 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-4 py-2 text-sm font-semibold text-[#4A148C] transition hover:bg-[#F0EBFF]"
+                >
+                  <X className="h-4 w-4" aria-hidden /> Back to Dashboard
+                </button>
+              </div>
+            </div>
+
+            {/* ── KPI strip ── */}
+            <div className="shrink-0 border-b border-[rgba(74,20,140,0.1)] bg-white px-6 py-3">
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { label: 'Planned Budget', value: filmBudget,  color: '#4B4594' },
+                  { label: 'Total Spent',    value: filmSpent,   color: '#C0392B' },
+                  { label: 'Balance',        value: filmBalance, color: filmBalance >= 0 ? '#2FA36B' : '#E61E6E' },
+                  { label: 'Total Revenue',  value: filmIncome,  color: '#0EA5A0' },
+                  ...(totalPrint > 0 ? [{ label: 'Print Costs', value: totalPrint, color: '#7B52AB' }] : []),
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-[#F7F2FF] px-4 py-2 text-center">
+                    <p className="text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">{label}</p>
+                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color }}>
+                      {formatCurrency(value)}
+                    </p>
+                  </div>
+                ))}
+                {filmBalance < 0 && (
+                  <div className="flex items-center rounded-xl bg-[#FFE5EC] px-4 py-2">
+                    <span className="text-sm font-bold text-[#C0004C]">⚠ Over budget by {formatCurrency(Math.abs(filmBalance))}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Scrollable body ── */}
+            <div className="flex-1 overflow-y-auto px-6 pb-20 pt-5">
+
+              {budgetLoading && (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="h-8 w-8 animate-spin text-[#4B4594]" />
+                </div>
+              )}
+
+              {budgetError && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{budgetError}</p>
+              )}
+
+              {!budgetLoading && !budgetError && budgetRows.length === 0 && (
+                <p className="py-16 text-center text-sm text-[#8A7BAB]">
+                  No budget uploaded yet for this film. Use <span className="font-semibold text-[#4B4594]">↑ Upload Budget</span> to import the budget file.
+                </p>
+              )}
+
+              {/* ── Main budget table ── */}
+              {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
+                // Grand totals — sum planned across all rows; sum actual once per group
+                const grandBudget   = budgetRows.reduce((s, r) => s + r.budget, 0)
+                const grandActual   = [...groups.keys()].reduce((s, key) => s + (actualByCode[key] ?? 0), 0)
+                const grandVariance = grandBudget - grandActual
+
+                const toggleGroup = (key) => setExpandedGroups(prev => {
+                  const next = new Set(prev)
+                  next.has(key) ? next.delete(key) : next.add(key)
+                  return next
+                })
+
+                const hasMediaFlag = budgetRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
+
+                return (
+                  <>
+                  {/* Legend */}
+                  {hasMediaFlag && (
+                    <div className="mb-4 flex items-center gap-5 rounded-xl border border-[rgba(74,20,140,0.1)] bg-white px-4 py-2.5 text-[11px] font-medium text-[#6A5B88] shadow-sm">
+                      <span className="text-[0.6rem] font-bold uppercase tracking-widest text-[#9A8AB8]">Key:</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" />
+                        Media spend
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" />
+                        Non-media spend
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-3 w-5 rounded-sm bg-white border border-[rgba(74,20,140,0.15)]" />
+                        Not set
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-[#2D1B69]">
+                          {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right]) => (
+                            <th key={label} className={`px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'}`}>
+                              {label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...groups.entries()].map(([groupKey, { code, rows }], gi) => {
+                          const groupBudget   = rows.reduce((s, r) => s + r.budget, 0)
+                          const groupActual   = actualByCode[groupKey] ?? 0
+                          const groupVariance = groupBudget - groupActual
+                          const isExpanded    = expandedGroups.has(groupKey)
+                          const firstRow      = rows[0]
+
+                          // Parent row bg: media=blue tint, non-media=amber tint, unknown=slate
+                          const parentBg =
+                            firstRow?.isMedia === true  ? 'bg-[#EFF6FF]' :
+                            firstRow?.isMedia === false ? 'bg-[#FFFBEB]' :
+                            'bg-slate-50'
+
+                          // Child row bg: slightly lighter version of the same palette
+                          const childBg =
+                            firstRow?.isMedia === true  ? 'bg-white hover:bg-[#F0F8FF]' :
+                            firstRow?.isMedia === false ? 'bg-white hover:bg-[#FFFDF0]' :
+                            'bg-white hover:bg-slate-50'
+
+                          return (
+                            <React.Fragment key={groupKey}>
+                              {/* ── Parent / summary row ── */}
+                              <tr
+                                className={`cursor-pointer border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors`}
+                                onClick={() => toggleGroup(groupKey)}
+                              >
+                                <td className="px-4 py-3 font-bold text-[#2D1B69]">
+                                  <span className="mr-2 text-[10px] text-[#7B52AB]">
+                                    {isExpanded ? '▾' : '▸'}
+                                  </span>
+                                  {code || 'No Code'}
+                                  <span className="ml-2 text-[10px] font-normal text-[#9A8AB8]">
+                                    ({rows.length})
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs font-medium text-[#8A7BAB]">—</td>
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums text-[#2D1B69]">
+                                  {formatCurrency(groupBudget)}
+                                </td>
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums"
+                                    style={{ color: groupActual > 0 ? '#B91C1C' : '#C4B8D8' }}>
+                                  {groupActual > 0 ? formatCurrency(groupActual) : '—'}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums ${groupActual > 0 ? varianceCellClass(groupVariance) : 'text-[#C4B8D8]'}`}>
+                                  {groupActual > 0 ? formatCurrency(groupVariance) : '—'}
+                                </td>
+                              </tr>
+
+                              {/* ── Child / detail rows ── */}
+                              {isExpanded && rows.map((row, i) => (
+                                <tr key={i} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
+                                  <td className="py-2 pl-9 pr-4 text-[12.5px] text-[#5B4B7A]">
+                                    <span className="mr-1.5 text-[9px] text-[#C4B8D8]">└</span>
+                                    {row.categoryName}
+                                  </td>
+                                  <td className="px-4 py-2 text-xs text-[#A09ABB]">{row.vendorName || '—'}</td>
+                                  <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">
+                                    {formatCurrency(row.budget)}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
+                                  <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-4 border-[#2D1B69] bg-[#2D1B69]">
+                          <td colSpan={2} className="px-4 py-3.5 text-sm font-extrabold tracking-wide text-white">
+                            Grand Total
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-white">
+                            {formatCurrency(grandBudget)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-white/90">
+                            {grandActual > 0 ? formatCurrency(grandActual) : '—'}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums">
+                            {grandActual > 0
+                              ? <span style={{ color: grandVariance >= 0 ? '#6EE7B7' : '#FCA5A5' }}>{formatCurrency(grandVariance)}</span>
+                              : <span className="text-white/40">—</span>}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  </>
+                )
+              })()}
+
+              {/* ── Print Expenses section ── */}
+              {printRows.length > 0 && (
+                <div className="mt-8">
+                  <div className="mb-3 flex items-center gap-2">
+                    <div className="h-2.5 w-2.5 rounded-full bg-[#7B52AB]" />
+                    <h2 className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#7B52AB]">
+                      Print &amp; Technical Expenses — {formatCurrency(totalPrint)} (excluded from budget)
+                    </h2>
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-[rgba(123,82,171,0.2)] bg-white shadow-sm">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr>
+                          {['Priority Code', 'Description', 'Month', 'Amount'].map((h, i) => (
+                            <th key={h} className={`sticky top-0 z-10 border-b-2 border-[rgba(123,82,171,0.18)] bg-[#F4F0FF] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#7B52AB] ${i > 1 ? 'text-right' : 'text-left'}`}>
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {printRows.map((r, i) => (
+                          <tr key={i} className="border-t border-[rgba(123,82,171,0.07)] hover:bg-[#FAF7FF]">
+                            <td className="px-4 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs font-semibold text-[#7B52AB]">{r.priority_code}</td>
+                            <td className="px-4 py-2.5 text-xs text-[#8A7BAB]">{r.expense_description || '—'}</td>
+                            <td className="px-4 py-2.5 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#8A7BAB]">{r.month_period?.slice(0,7) ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#7B52AB]">{formatCurrency(r.actual_amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-[rgba(123,82,171,0.2)] bg-[#F4F0FF]">
+                          <td colSpan={3} className="px-4 py-2.5 text-xs font-bold text-[#7B52AB]">Total Print</td>
+                          <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#7B52AB]">
+                            {formatCurrency(totalPrint)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Trend chart ── */}
+              {(actualExpensesRows.length > 0 || incomeRows.length > 0) && (
+                <div className="mt-8">
+                  <div className="mb-3 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-[#4B4594]" aria-hidden />
+                    <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4A148C]">Accumulated Trend</p>
+                  </div>
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.12)] bg-white p-6">
+                    <TrendChart filmNumber={film.film_number} />
+                    <div className="mt-3 flex items-center justify-center gap-6">
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#C0392B]" /> Accum. Expenses</span>
+                      <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#0EA5A0]" /> Accum. Revenue</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        )
+      })()}
 
       {filmsManagerOpen && (
         <FilmsManagementModal onClose={() => { setFilmsManagerOpen(false); void refreshMovies() }} />
