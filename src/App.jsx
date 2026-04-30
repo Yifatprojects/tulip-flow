@@ -856,7 +856,6 @@ export default function App() {
       const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
       await refreshMovies()
-      setSelectedMovie(data)
       setAddMovieOpen(false)
       setNewMovieHebrew('')
       setNewMovieEnglish('')
