@@ -844,14 +844,48 @@ export default function App() {
       setAddMovieError('Choose a studio.')
       return
     }
+    const profitCenter = newMovieProfitCenter.trim() || null
     setAddMovieBusy(true)
     try {
+      // ── Duplicate checks before inserting ──────────────────────────────────
+      const orFilters = [`film_number.eq.${code}`]
+      if (profitCenter) orFilters.push(`profit_center.eq.${profitCenter}`)
+      if (en) orFilters.push(`title_en.ilike.${en}`)
+      if (he) orFilters.push(`title_he.ilike.${he}`)
+
+      const { data: existing } = await supabase
+        .from('films')
+        .select('film_number, title_en, title_he, profit_center')
+        .or(orFilters.join(','))
+        .limit(5)
+
+      if (existing && existing.length > 0) {
+        const conflicts = existing.map(f => {
+          const parts = []
+          if (f.film_number === code)
+            parts.push(`Film number "${code}" is already used by "${f.title_en || f.title_he || f.film_number}"`)
+          if (profitCenter && f.profit_center === profitCenter)
+            parts.push(`Profit center "${profitCenter}" is already assigned to "${f.title_en || f.title_he || f.film_number}"`)
+          if (en && f.title_en?.toLowerCase() === en.toLowerCase())
+            parts.push(`English title "${en}" already exists`)
+          if (he && f.title_he?.toLowerCase() === he.toLowerCase())
+            parts.push(`Hebrew title "${he}" already exists`)
+          return parts
+        }).flat().filter(Boolean)
+
+        if (conflicts.length > 0) {
+          setAddMovieError(conflicts.join('\n'))
+          setAddMovieBusy(false)
+          return
+        }
+      }
+
       const payload = {
         film_number:   code,
         title_en:      en || null,
         title_he:      he || null,
         studio,
-        profit_center: newMovieProfitCenter.trim() || null,
+        profit_center: profitCenter,
       }
       const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
