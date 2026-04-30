@@ -300,6 +300,20 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
             </p>
           )}
           <p className="mt-0.5 truncate text-[10px] text-[#6A5B88]">{movieStudioAndCodeLabel(movie)}</p>
+          {/* Profit center + release date chips */}
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {movie.profit_center && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
+                PC {movie.profit_center}
+              </span>
+            )}
+            {movie.release_date && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[9px] font-semibold text-[#E65100]">
+                <Calendar className="h-2.5 w-2.5" aria-hidden />
+                {new Date(movie.release_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </span>
+            )}
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <p className="font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#4B4594]">
