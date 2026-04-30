@@ -1458,11 +1458,20 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
               </div>
             </div>
           ) : lockType ? (
-            /* ── Opened from the general Upload Budget button — any movie, budgets only ── */
-            <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-[rgba(47,163,107,0.25)] bg-[#F0FBF5] px-4 py-2.5">
-              <Receipt className="h-4 w-4 shrink-0 text-[#2FA36B]" aria-hidden />
-              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.18em] text-[#2FA36B]">
-                Budget import — any movie
+            /* ── Locked to a single type (no type switching) ── */
+            <div className={`mb-5 flex items-center gap-2.5 rounded-xl px-4 py-2.5 ${
+              uploadType === 'journal'
+                ? 'border border-[rgba(75,69,148,0.25)] bg-[#F4F0FF]'
+                : 'border border-[rgba(47,163,107,0.25)] bg-[#F0FBF5]'
+            }`}>
+              {uploadType === 'journal'
+                ? <Receipt className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                : <Receipt className="h-4 w-4 shrink-0 text-[#2FA36B]" aria-hidden />
+              }
+              <p className={`text-[0.6rem] font-semibold uppercase tracking-[0.18em] ${
+                uploadType === 'journal' ? 'text-[#4B4594]' : 'text-[#2FA36B]'
+              }`}>
+                {uploadType === 'journal' ? 'Monthly expenses / rentals import' : 'Budget import — any movie'}
               </p>
             </div>
           ) : (
