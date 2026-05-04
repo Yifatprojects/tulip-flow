@@ -636,6 +636,8 @@ export default function App() {
             .from('films').select('*').in('film_number', uniqueFns).order('title_en').range(from, from + PAGE - 1)
           if (pageErr) throw pageErr
           filmsData = filmsData.concat(page ?? [])
+          const mummy = (page ?? []).find(f => f.film_number === '2145362' || f.title_en?.toLowerCase().includes('mummy'))
+          if (mummy) console.log('[Mummy debug]', JSON.stringify(mummy))
           if (!page || page.length < PAGE) break
           from += PAGE
         }
