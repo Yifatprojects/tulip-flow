@@ -636,8 +636,6 @@ export default function App() {
             .from('films').select('*').in('film_number', uniqueFns).order('title_en').range(from, from + PAGE - 1)
           if (pageErr) throw pageErr
           filmsData = filmsData.concat(page ?? [])
-          const mummy = (page ?? []).find(f => f.film_number === '2145362' || f.title_en?.toLowerCase().includes('mummy'))
-          if (mummy) console.log('[Mummy debug]', JSON.stringify(mummy))
           if (!page || page.length < PAGE) break
           from += PAGE
         }
@@ -747,7 +745,7 @@ export default function App() {
       try {
         const { data } = await supabase
           .from('films')
-          .select('film_number, title_en, title_he, studio, profit_center')
+          .select('film_number, title_en, title_he, studio, profit_center, release_date')
           .or(`title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,film_number.ilike.%${needle}%,studio.ilike.%${needle}%,profit_center.ilike.%${needle}%`)
           .order('title_en')
           .limit(50)
