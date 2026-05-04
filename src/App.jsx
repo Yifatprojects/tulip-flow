@@ -1347,10 +1347,21 @@ export default function App() {
               {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
                 const hasMediaFlag = budgetRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
 
-                // Split groups into media / non-media / unknown buckets
-                const mediaGroups    = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia === true)
-                const nonMediaGroups = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia === false)
-                const unknownGroups  = [...groups.entries()].filter(([, { rows }]) => rows[0]?.isMedia !== true && rows[0]?.isMedia !== false)
+                // Determine dominant media type for a group by majority vote
+                const groupDominantMedia = (rows) => {
+                  const mediaCount    = rows.filter(r => r.isMedia === true).length
+                  const nonMediaCount = rows.filter(r => r.isMedia === false).length
+                  const total         = mediaCount + nonMediaCount
+                  if (total === 0)                    return null
+                  if (mediaCount    / total > 0.5)   return true
+                  if (nonMediaCount / total > 0.5)   return false
+                  return null // exactly 50-50
+                }
+
+                // Split groups into media / non-media / unknown buckets using majority vote
+                const mediaGroups    = [...groups.entries()].filter(([, { rows }]) => groupDominantMedia(rows) === true)
+                const nonMediaGroups = [...groups.entries()].filter(([, { rows }]) => groupDominantMedia(rows) === false)
+                const unknownGroups  = [...groups.entries()].filter(([, { rows }]) => groupDominantMedia(rows) === null)
 
                 // Apply active filter
                 const visibleGroups =
@@ -1382,8 +1393,9 @@ export default function App() {
                   const groupVariance = groupBudget - groupActual
                   const isExpanded    = expandedGroups.has(groupKey)
                   const firstRow      = rows[0]
-                  const parentBg = firstRow?.isMedia === true ? 'bg-[#EFF6FF]' : firstRow?.isMedia === false ? 'bg-[#FFFBEB]' : 'bg-slate-50'
-                  const childBg  = firstRow?.isMedia === true ? 'bg-white hover:bg-[#F0F8FF]' : firstRow?.isMedia === false ? 'bg-white hover:bg-[#FFFDF0]' : 'bg-white hover:bg-slate-50'
+                  const dominantMedia = groupDominantMedia(rows)
+                  const parentBg = dominantMedia === true ? 'bg-[#EFF6FF]' : dominantMedia === false ? 'bg-[#FFFBEB]' : 'bg-slate-50'
+                  const childBg  = dominantMedia === true ? 'bg-white hover:bg-[#F0F8FF]' : dominantMedia === false ? 'bg-white hover:bg-[#FFFDF0]' : 'bg-white hover:bg-slate-50'
 
                   return (
                     <React.Fragment key={groupKey}>
