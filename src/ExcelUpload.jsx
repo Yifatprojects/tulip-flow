@@ -936,18 +936,18 @@ async function previewJournal(file, month, year) {
     const PRINT_PREFIXES = ['950', '940', '930']
     const isPrint = PRINT_PREFIXES.some((p) => String(row.priority_code).startsWith(p))
 
-    const entry = {
+    const baseEntry = {
       film_number:   filmNumber,
       priority_code: row.priority_code,
       actual_amount: row.actual_amount,
       month_period:  monthPeriod,
-      is_print:      isPrint,
     }
 
     if (expCodeSet.has(row.priority_code)) {
-      expenseRows.push(entry)
+      // is_print only exists on actual_expenses, not rental_transactions
+      expenseRows.push({ ...baseEntry, is_print: isPrint })
     } else if (rentCodeSet.has(row.priority_code)) {
-      incomeRows.push(entry)
+      incomeRows.push(baseEntry)
     } else {
       unknownCodes.add(row.priority_code)
     }
