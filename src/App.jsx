@@ -636,6 +636,8 @@ export default function App() {
             .from('films').select('*').in('film_number', uniqueFns).order('title_en').range(from, from + PAGE - 1)
           if (pageErr) throw pageErr
           filmsData = filmsData.concat(page ?? [])
+          // Temporary diagnostic — remove after confirming release_date values
+          console.log('[Films] release_date samples:', (page ?? []).slice(0, 5).map(f => ({ film: f.film_number, release_date: f.release_date })))
           if (!page || page.length < PAGE) break
           from += PAGE
         }
