@@ -1080,7 +1080,24 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
   const [preview, setPreview]       = useState(null)
   const [journalMonth, setJournalMonth] = useState(new Date().getMonth() + 1)
   const [journalYear,  setJournalYear]  = useState(new Date().getFullYear())
+  const [journalStudio, setJournalStudio] = useState('')
+  const [studioOptions, setStudioOptions] = useState([])
   const fileInputRef = useRef(null)
+
+  // Fetch distinct studios whenever the modal opens in journal mode
+  useEffect(() => {
+    if (uploadType !== 'journal') return
+    supabase
+      .from('films')
+      .select('studio')
+      .not('studio', 'is', null)
+      .then(({ data }) => {
+        const sorted = [...new Set((data ?? []).map(r => r.studio).filter(Boolean))].sort()
+        setStudioOptions(sorted)
+        if (!journalStudio && sorted.length > 0) setJournalStudio(sorted[0])
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadType])
 
   const config = TYPE_CONFIG[uploadType]
 
@@ -1092,6 +1109,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
     setFeedback(null)
     setStep('select')
     setPreview(null)
+    if (key !== 'journal') setJournalStudio('')
   }
 
   function acceptFile(f) {
@@ -1149,6 +1167,28 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
         setStep('confirm')
       } else if (uploadType === 'journal') {
         const previewData = await previewJournal(file, journalMonth, journalYear)
+
+        // ── Studio guard ──────────────────────────────────────────────────────
+        if (journalStudio && previewData.uniqueFilms.length > 0) {
+          const { data: filmRows } = await supabase
+            .from('films')
+            .select('film_number, title_en, title_he, studio')
+            .in('film_number', previewData.uniqueFilms)
+
+          const wrongFilms = (filmRows ?? []).filter(
+            f => f.studio?.trim().toLowerCase() !== journalStudio.trim().toLowerCase()
+          )
+
+          if (wrongFilms.length > 0) {
+            const names = wrongFilms
+              .map(f => `"${f.title_en || f.title_he || f.film_number}" (studio: ${f.studio || 'unknown'})`)
+              .join('\n')
+            throw new Error(
+              `Studio mismatch — you selected "${journalStudio}" but the file contains films from a different studio:\n\n${names}\n\nPlease select the correct studio or upload the right file.`
+            )
+          }
+        }
+
         setPreview(previewData)
         setStep('confirm')
       } else {
@@ -1518,7 +1558,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
           {uploadType === 'journal' && (
             <div className="mb-5 rounded-xl border border-[rgba(75,69,148,0.3)] bg-[#F4F0FF] p-4">
               <p className="mb-3 text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4B4594]">
-                Select period
+                Select period &amp; studio
               </p>
               <div className="flex gap-3">
                 <div className="flex-1">
@@ -1545,6 +1585,27 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Studio selector */}
+              <div className="mt-3">
+                <label className="mb-1 block text-[11px] font-semibold text-[#6B5FA8]">
+                  Studio
+                  <span className="ml-1 font-normal text-[#9A8AB8]">(file must only contain films from this studio)</span>
+                </label>
+                {studioOptions.length > 0 ? (
+                  <select
+                    value={journalStudio}
+                    onChange={(e) => setJournalStudio(e.target.value)}
+                    className="w-full rounded-lg border border-[rgba(75,69,148,0.3)] bg-white px-3 py-2 text-sm font-medium text-[#4B4594] focus:outline-none focus:ring-2 focus:ring-[#4B4594]/30"
+                  >
+                    {studioOptions.map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-[11px] text-[#9A8AB8]">Loading studios…</p>
+                )}
               </div>
             </div>
           )}
