@@ -1084,18 +1084,13 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
   const [studioOptions, setStudioOptions] = useState([])
   const fileInputRef = useRef(null)
 
-  // Fetch distinct studios whenever the modal opens in journal mode
+  // Fixed studio list — same as the Add New Movie form
+  const STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Other']
+
   useEffect(() => {
     if (uploadType !== 'journal') return
-    supabase
-      .from('films')
-      .select('studio')
-      .not('studio', 'is', null)
-      .then(({ data }) => {
-        const sorted = [...new Set((data ?? []).map(r => r.studio).filter(Boolean))].sort()
-        setStudioOptions(sorted)
-        if (!journalStudio && sorted.length > 0) setJournalStudio(sorted[0])
-      })
+    setStudioOptions(STUDIO_OPTIONS)
+    if (!journalStudio) setJournalStudio(STUDIO_OPTIONS[0])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadType])
 

@@ -18,8 +18,8 @@ import { LoginPage } from './LoginPage'
 
 /** @typedef {import('./types/movie').Movie} Movie */
 
-/** Fixed studio name options for the add-movie form */
-const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Other']
+/** Fixed studio name options — shared across the app */
+const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Other']
 
 /** Primary display title: English, else Hebrew */
 function movieTitleEnglish(movie) {
