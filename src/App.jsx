@@ -1276,9 +1276,15 @@ export default function App() {
                 {movieTitleHebrewSubtitle(film) && (
                   <p className="text-sm text-[#9A8AB8]" lang="he">{movieTitleHebrewSubtitle(film)}</p>
                 )}
-                <p className="mt-0.5 text-xs text-[#6A5B88]">
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6A5B88]">
                   {movieStudioAndCodeLabel(film)}
-                  {film.profit_center && <span className="ml-2 font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
+                  {film.profit_center && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
+                  {formatReleaseDate(film.release_date) && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[10px] font-semibold text-[#E65100]">
+                      <Calendar className="h-2.5 w-2.5" aria-hidden />
+                      {formatReleaseDate(film.release_date)}
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
