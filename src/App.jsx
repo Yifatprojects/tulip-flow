@@ -55,14 +55,27 @@ function formatMoney(value) {
 }
 
 function formatReleaseDate(value) {
-  if (value == null || value === '') return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value)
-  return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  if (value == null || value === '') return null
+  // Try native parse first (handles ISO "2026-04-16")
+  let d = new Date(value)
+  if (!isNaN(d.getTime())) {
+    // ISO date-only: treat as local midnight to avoid timezone shift
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+      const [y, m, day] = String(value).split('-').map(Number)
+      d = new Date(y, m - 1, day)
+    }
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  // Fallback: DD.MM.YY / DD/MM/YY / DD.MM.YYYY
+  const match = String(value).match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/)
+  if (match) {
+    let [, day, month, year] = match.map(Number)
+    if (year < 100) year += 2000
+    d = new Date(year, month - 1, day)
+    if (!isNaN(d.getTime()))
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
+  return null
 }
 
 /** Soft glow: emerald when under budget, glowy red when over */
@@ -76,37 +89,6 @@ function formatCurrency(value) {
   return `₪${formatMoney(value)}`
 }
 
-/**
- * Parse a release date that may arrive in various formats:
- *   ISO:       "2026-04-16"
- *   DD.MM.YY:  "16.4.26"  or "16.04.2026"
- *   DD/MM/YY:  "16/4/26"  or "16/04/2026"
- * Returns a formatted string like "16 Apr 2026", or null if unparseable.
- */
-function formatReleaseDate(raw) {
-  if (!raw) return null
-  // Try native parse first (works for ISO and many standard strings)
-  let d = new Date(raw)
-  if (!isNaN(d.getTime())) {
-    // Treat ISO date-only strings as local midnight to avoid timezone shift
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw))) {
-      const [y, m, day] = String(raw).split('-').map(Number)
-      d = new Date(y, m - 1, day)
-    }
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  }
-  // Try DD.MM.YY / DD/MM/YY formats
-  const match = String(raw).match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/)
-  if (match) {
-    let [, day, month, year] = match.map(Number)
-    if (year < 100) year += 2000
-    d = new Date(year, month - 1, day)
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    }
-  }
-  return null
-}
 
 /** Shared KPI strip: budget (neutral), actual (bold), variance (green/red). */
 function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt-6' }) {
