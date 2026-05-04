@@ -1328,6 +1328,40 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* ── Budget progress bar ── */}
+              {filmBudget > 0 && (() => {
+                const pct = Math.min(filmSpent / filmBudget, 1)
+                const overBudget = filmSpent > filmBudget
+                return (
+                  <div className="mt-3">
+                    <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-[#8A7BAB]">
+                      <span>Budget used</span>
+                      <span style={{ color: overBudget ? '#C0004C' : '#2FA36B' }}>
+                        {(pct * 100).toFixed(1)}%
+                        {overBudget && ' — Over budget'}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#EDE8F8]">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${(pct * 100).toFixed(1)}%`,
+                          background: overBudget
+                            ? 'linear-gradient(90deg,#E61E6E,#C0004C)'
+                            : pct > 0.8
+                            ? 'linear-gradient(90deg,#F59E0B,#D97706)'
+                            : 'linear-gradient(90deg,#2FA36B,#0EA5A0)',
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[9px] text-[#A09ABB]">
+                      <span>{formatCurrency(filmSpent)} spent</span>
+                      <span>{formatCurrency(filmBudget)} planned</span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* ── Scrollable body ── */}
