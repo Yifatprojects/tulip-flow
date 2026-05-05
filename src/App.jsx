@@ -877,6 +877,7 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [studioFilter, setStudioFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('') // '' | 'plan_pre' | 'screening_post' | 'final' | 'approved' | 'overspend' | 'underspend'
   const [progressSort, setProgressSort] = useState('none')
   const [hideNoData, setHideNoData] = useState(true)
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
@@ -1159,6 +1160,16 @@ export default function App() {
 
   const isSearching = searchTerm.trim() !== ''
 
+  // Returns 'overspend' | 'underspend' | null based on live financial data
+  const getFilmPerfStatus = useCallback((m) => {
+    const budget = Number(movieBudgetTotals[m.film_number] ?? 0)
+    const spent  = Number(movieMarketingTotals[m.film_number] ?? 0)
+    if (budget <= 0) return null
+    if (spent > budget) return 'overspend'
+    if (spent <= budget * 0.95) return 'underspend'
+    return null
+  }, [movieBudgetTotals, movieMarketingTotals])
+
   const filteredMovies = useMemo(() => {
     let base = isSearching
       ? [...searchResults]
@@ -1166,6 +1177,14 @@ export default function App() {
 
     if (studioFilter !== '') {
       base = base.filter((m) => studioMatches(m.studio, studioFilter))
+    }
+
+    if (statusFilter !== '') {
+      if (statusFilter === 'overspend' || statusFilter === 'underspend') {
+        base = base.filter((m) => getFilmPerfStatus(m) === statusFilter)
+      } else {
+        base = base.filter((m) => (m.budget_status || 'plan_pre') === statusFilter)
+      }
     }
 
     if (hideNoData && !isSearching) {
@@ -1192,8 +1211,9 @@ export default function App() {
 
     return base
   }, [
-    movies, searchResults, isSearching, studioFilter, progressSort,
+    movies, searchResults, isSearching, studioFilter, statusFilter, progressSort,
     hideNoData, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
+    getFilmPerfStatus,
   ])
 
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
@@ -1513,51 +1533,86 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
-                    <div
-                      className={`flex min-h-[2.5rem] flex-1 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}
-                    >
-                      {searchLoading
-                        ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
-                        : <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
-                      }
-                      <input
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Search all films by name, code, or studio…"
-                        className="w-full min-w-0 bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
-                      />
-                      {searchTerm && (
-                        <button
-                          type="button"
-                          onClick={() => setSearchTerm('')}
-                          className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]"
-                          aria-label="Clear search"
+                  <div className="mb-4 flex flex-col gap-2">
+                    {/* Row 1: Search + Studio */}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+                      <div
+                        className={`flex min-h-[2.5rem] flex-1 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}
+                      >
+                        {searchLoading
+                          ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
+                          : <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
+                        }
+                        <input
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          placeholder="Search all films by name, code, or studio…"
+                          className="w-full min-w-0 bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
+                        />
+                        {searchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => setSearchTerm('')}
+                            className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]"
+                            aria-label="Clear search"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex min-h-[2.5rem] shrink-0 items-center gap-2 sm:min-w-[11rem]">
+                        <label
+                          htmlFor="studio-name-filter"
+                          className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]"
                         >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                          Studio
+                        </label>
+                        <select
+                          id="studio-name-filter"
+                          value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
+                          onChange={(e) => setStudioFilter(e.target.value)}
+                          className={`w-full min-w-0 rounded-xl ${brandBorder} bg-white/95 px-2.5 py-2 text-xs font-medium text-[#5B4B7A] shadow-[0_6px_14px_rgba(74,20,140,0.08)] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:max-w-[12rem]`}
+                        >
+                          <option value="">All studios</option>
+                          {studioFilterOptions.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div className="flex min-h-[2.5rem] shrink-0 items-center gap-2 sm:min-w-[11rem]">
-                      <label
-                        htmlFor="studio-name-filter"
-                        className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]"
-                      >
-                        Studio
-                      </label>
-                      <select
-                        id="studio-name-filter"
-                        value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
-                        onChange={(e) => setStudioFilter(e.target.value)}
-                        className={`w-full min-w-0 rounded-xl ${brandBorder} bg-white/95 px-2.5 py-2 text-xs font-medium text-[#5B4B7A] shadow-[0_6px_14px_rgba(74,20,140,0.08)] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:max-w-[12rem]`}
-                      >
-                        <option value="">All studios</option>
-                        {studioFilterOptions.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
+
+                    {/* Row 2: Budget Status filter pills */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
+                        Status
+                      </span>
+                      {[
+                        { key: '',                label: 'All',            bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
+                        { key: 'plan_pre',        label: 'Plan Pre',       bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
+                        { key: 'screening_post',  label: 'Screening Post', bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
+                        { key: 'final',           label: 'Final',          bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
+                        { key: 'approved',        label: '✓ Approved',     bg: '#F0FBF5', activeBg: '#2FA36B',  activeText: '#fff', text: '#2FA36B' },
+                        { key: 'underspend',      label: '↓ Underspend',   bg: '#FFFBEB', activeBg: '#D97706',  activeText: '#fff', text: '#D97706' },
+                        { key: 'overspend',       label: '⚠ Overspend',    bg: '#FFF1F3', activeBg: '#C0004C',  activeText: '#fff', text: '#C0004C' },
+                      ].map(({ key, label, activeBg, activeText, text }) => {
+                        const isActive = statusFilter === key
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setStatusFilter(key)}
+                            style={isActive
+                              ? { background: activeBg, color: activeText }
+                              : { color: text }}
+                            className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all
+                              ${isActive
+                                ? 'shadow-sm'
+                                : 'bg-white/80 border border-[rgba(74,20,140,0.15)] hover:bg-[#F7F2FF]'}`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
 
@@ -1565,7 +1620,7 @@ export default function App() {
                     <p className="py-6 text-center text-sm text-[#4A148C]">
                       {movies.length === 0
                         ? 'No movies yet. Use “Add new movie” to create a title.'
-                        : 'No films match the current studio filter.'}
+                        : 'No films match the current filters.'}
                     </p>
                   ) : (
                     <div className="movie-list-scroll lg:h-[calc(100%-6.5rem)] lg:overflow-y-auto lg:pr-1">
