@@ -4,8 +4,8 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
-  DollarSign, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
-  Search, Settings, TrendingUp, X,
+  DollarSign, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
+  Save, Search, Settings, TrendingUp, X,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -170,8 +170,7 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
 async function fetchBudgetRows(filmNumber) {
   const fullRes = await supabase
     .from('budgets')
-    // Try full select first; fall back to core columns if optional ones don't exist in DB yet
-    .select('budget_item_name, planned_amount, media_budget_code, vendor_name, is_media')
+    .select('id, budget_item_name, planned_amount, media_budget_code, vendor_name, is_media')
     .eq('film_number', filmNumber)
     .order('media_budget_code', { nullsFirst: false })
 
@@ -179,7 +178,7 @@ async function fetchBudgetRows(filmNumber) {
   if (fullRes.error) {
     const coreRes = await supabase
       .from('budgets')
-      .select('budget_item_name, planned_amount, media_budget_code')
+      .select('id, budget_item_name, planned_amount, media_budget_code')
       .eq('film_number', filmNumber)
       .order('media_budget_code', { nullsFirst: false })
     data  = coreRes.data
@@ -192,6 +191,7 @@ async function fetchBudgetRows(filmNumber) {
   if (error) throw new Error(error.message)
 
   return (data ?? []).map(b => ({
+    id:           b.id,
     categoryName: b.budget_item_name?.trim() || 'Uncategorised',
     mediaCode:    b.media_budget_code?.trim() || '',
     vendorName:   b.vendor_name?.trim() || '',
@@ -889,6 +889,10 @@ export default function App() {
   const [budgetRefresh, setBudgetRefresh] = useState(0)
   const [expandedGroups, setExpandedGroups] = useState(new Set())
   const [budgetFilter, setBudgetFilter] = useState('all') // 'all' | 'media' | 'nonmedia'
+  const [budgetEditMode, setBudgetEditMode] = useState(false)
+  const [draftRows, setDraftRows] = useState([])
+  const [budgetSaving, setBudgetSaving] = useState(false)
+  const [budgetSaveToast, setBudgetSaveToast] = useState(null) // 'success' | 'error' | null
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -1015,6 +1019,9 @@ export default function App() {
     if (!selectedMovie) {
       setBudgetRows([])
       setBudgetError(null)
+      setBudgetEditMode(false)
+      setDraftRows([])
+      setBudgetSaveToast(null)
       setActualExpensesRows([])
       setActualExpensesError(null)
       setIncomeRows([])
@@ -1598,9 +1605,94 @@ export default function App() {
         const printRows = (actualExpensesRows ?? []).filter(r => isPrintCode(r.priority_code))
         const totalPrint = printRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
 
-        // Group budget rows by media_budget_code
+        // In edit mode use draft rows; otherwise use the loaded rows
+        const activeRows = budgetEditMode ? draftRows : (budgetRows ?? [])
+
+        // ── Edit helpers ─────────────────────────────────────────────────────
+        const updateDraft = (rowId, field, value) =>
+          setDraftRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r))
+
+        const addDraftRow = (mediaCode) => {
+          setDraftRows(prev => [...prev, {
+            id:           `new_${Date.now()}_${Math.random()}`,
+            isNew:        true,
+            categoryName: '',
+            vendorName:   '',
+            budget:       0,
+            mediaCode:    mediaCode || '',
+            isMedia:      null,
+          }])
+          // Ensure the group stays expanded so the new row is visible
+          setExpandedGroups(prev => new Set([...prev, mediaCode || '__none__']))
+        }
+
+        const startEdit = () => {
+          setDraftRows((budgetRows ?? []).map(r => ({ ...r })))
+          setBudgetEditMode(true)
+          // Expand all groups so user can see and edit everything
+          setExpandedGroups(new Set((budgetRows ?? []).map(r => r.mediaCode || '__none__')))
+        }
+
+        const cancelEdit = () => {
+          setBudgetEditMode(false)
+          setDraftRows([])
+        }
+
+        const saveBudget = async () => {
+          setBudgetSaving(true)
+          try {
+            const existing = draftRows.filter(r => !r.isNew && r.id)
+            const newRows  = draftRows.filter(r => r.isNew)
+
+            if (existing.length > 0) {
+              const { error } = await supabase.from('budgets').upsert(
+                existing.map(r => ({
+                  id:               r.id,
+                  film_number:      film.film_number,
+                  budget_item_name: r.categoryName || '',
+                  vendor_name:      r.vendorName   || null,
+                  planned_amount:   Number(r.budget) || 0,
+                  media_budget_code: r.mediaCode   || null,
+                  is_media:         r.isMedia,
+                })),
+                { onConflict: 'id' }
+              )
+              if (error) throw new Error(error.message)
+            }
+
+            if (newRows.length > 0) {
+              const { error } = await supabase.from('budgets').insert(
+                newRows
+                  .filter(r => r.categoryName.trim())
+                  .map(r => ({
+                    film_number:      film.film_number,
+                    budget_item_name: r.categoryName.trim(),
+                    vendor_name:      r.vendorName   || null,
+                    planned_amount:   Number(r.budget) || 0,
+                    media_budget_code: r.mediaCode   || null,
+                    is_media:         r.isMedia,
+                  }))
+              )
+              if (error) throw new Error(error.message)
+            }
+
+            setBudgetSaveToast('success')
+            setBudgetEditMode(false)
+            setDraftRows([])
+            setBudgetRefresh(n => n + 1)
+            void refreshMovies()
+            setTimeout(() => setBudgetSaveToast(null), 3500)
+          } catch (err) {
+            console.error('Budget save error:', err)
+            setBudgetSaveToast('error')
+          } finally {
+            setBudgetSaving(false)
+          }
+        }
+
+        // Group budget rows by media_budget_code (uses activeRows so edit mode works live)
         const groups = new Map()
-        for (const row of (budgetRows ?? [])) {
+        for (const row of activeRows) {
           const key = row.mediaCode || '__none__'
           if (!groups.has(key)) groups.set(key, { code: row.mediaCode, rows: [] })
           groups.get(key).rows.push(row)
@@ -1733,8 +1825,8 @@ export default function App() {
               )}
 
               {/* ── Main budget table ── */}
-              {!budgetLoading && !budgetError && budgetRows.length > 0 && (() => {
-                const hasMediaFlag = budgetRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
+              {!budgetLoading && !budgetError && (budgetRows.length > 0 || budgetEditMode) && (() => {
+                const hasMediaFlag = activeRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
 
                 // Determine dominant media type for a group by majority vote
                 const groupDominantMedia = (rows) => {
@@ -1776,21 +1868,51 @@ export default function App() {
                   return next
                 })
 
+                const editInput = (row, field, type = 'text') => (
+                  <input
+                    type={type}
+                    value={type === 'number' ? (row[field] ?? 0) : (row[field] ?? '')}
+                    onChange={e => updateDraft(row.id, field, type === 'number' ? Number(e.target.value) : e.target.value)}
+                    className="w-full rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
+                    placeholder={field === 'categoryName' ? 'Item name…' : field === 'vendorName' ? 'Vendor…' : '0'}
+                  />
+                )
+
+                const mediaToggle = (row) => (
+                  <button
+                    type="button"
+                    title={row.isMedia === true ? 'Media' : row.isMedia === false ? 'Non-Media' : 'Unknown'}
+                    onClick={() => {
+                      const next = row.isMedia === true ? false : row.isMedia === false ? null : true
+                      updateDraft(row.id, 'isMedia', next)
+                    }}
+                    className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition ${
+                      row.isMedia === true  ? 'bg-[#BFDBFE] text-[#1D4ED8]' :
+                      row.isMedia === false ? 'bg-[#FDE68A] text-[#92400E]' :
+                      'bg-slate-100 text-[#8A7BAB]'
+                    }`}
+                  >
+                    {row.isMedia === true ? 'M' : row.isMedia === false ? 'NM' : '?'}
+                  </button>
+                )
+
                 const renderGroup = ([groupKey, { code, rows }]) => {
-                  const groupBudget   = rows.reduce((s, r) => s + r.budget, 0)
+                  const groupBudget   = rows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
                   const groupActual   = actualByCode[groupKey] ?? 0
                   const groupVariance = groupBudget - groupActual
                   const isExpanded    = expandedGroups.has(groupKey)
-                  const firstRow      = rows[0]
                   const dominantMedia = groupDominantMedia(rows)
                   const parentBg = dominantMedia === true ? 'bg-[#EFF6FF]' : dominantMedia === false ? 'bg-[#FFFBEB]' : 'bg-slate-50'
                   const childBg  = dominantMedia === true ? 'bg-white hover:bg-[#F0F8FF]' : dominantMedia === false ? 'bg-white hover:bg-[#FFFDF0]' : 'bg-white hover:bg-slate-50'
 
                   return (
                     <React.Fragment key={groupKey}>
-                      <tr className={`cursor-pointer border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors`} onClick={() => toggleGroup(groupKey)}>
+                      {/* Parent summary row */}
+                      <tr className={`border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors ${budgetEditMode ? '' : 'cursor-pointer'}`}
+                          onClick={budgetEditMode ? undefined : () => toggleGroup(groupKey)}>
                         <td className="px-4 py-3 font-bold text-[#2D1B69]">
-                          <span className="mr-2 text-[10px] text-[#7B52AB]">{isExpanded ? '▾' : '▸'}</span>
+                          {!budgetEditMode && <span className="mr-2 text-[10px] text-[#7B52AB]">{isExpanded ? '▾' : '▸'}</span>}
+                          {budgetEditMode && <span className="mr-2 cursor-pointer text-[10px] text-[#7B52AB]" onClick={() => toggleGroup(groupKey)}>{isExpanded ? '▾' : '▸'}</span>}
                           {code || 'No Code'}
                           <span className="ml-2 text-[10px] font-normal text-[#9A8AB8]">({rows.length})</span>
                         </td>
@@ -1803,15 +1925,54 @@ export default function App() {
                           {groupActual > 0 ? formatCurrency(groupVariance) : '—'}
                         </td>
                       </tr>
-                      {isExpanded && rows.map((row, i) => (
-                        <tr key={i} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
-                          <td className="py-2 pl-9 pr-4 text-[12.5px] text-[#5B4B7A]">{row.categoryName}</td>
-                          <td className="px-4 py-2 text-xs text-[#A09ABB]">{row.vendorName || '—'}</td>
-                          <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">{formatCurrency(row.budget)}</td>
+
+                      {/* Child rows */}
+                      {isExpanded && rows.map((row) => (
+                        <tr key={row.id} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
+                          <td className="py-2 pl-9 pr-4">
+                            {budgetEditMode
+                              ? <div className="flex items-center gap-1">{editInput(row, 'categoryName')}{mediaToggle(row)}</div>
+                              : <span className="text-[12.5px] text-[#5B4B7A]">{row.categoryName}</span>
+                            }
+                          </td>
+                          <td className="px-4 py-2">
+                            {budgetEditMode
+                              ? editInput(row, 'vendorName')
+                              : <span className="text-xs text-[#A09ABB]">{row.vendorName || '—'}</span>
+                            }
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            {budgetEditMode
+                              ? <input
+                                  type="number"
+                                  min="0"
+                                  step="100"
+                                  value={row.budget ?? 0}
+                                  onChange={e => updateDraft(row.id, 'budget', Number(e.target.value))}
+                                  className="w-28 rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-right text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
+                                />
+                              : <span className="font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">{formatCurrency(row.budget)}</span>
+                            }
+                          </td>
                           <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
                           <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
                         </tr>
                       ))}
+
+                      {/* Add row button — only in edit mode */}
+                      {budgetEditMode && isExpanded && (
+                        <tr className={`border-t border-dashed border-[rgba(74,20,140,0.1)] ${childBg}`}>
+                          <td colSpan={5} className="px-4 py-1.5">
+                            <button
+                              type="button"
+                              onClick={() => addDraftRow(code)}
+                              className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]"
+                            >
+                              <span className="text-base leading-none">+</span> Add Budget Line
+                            </button>
+                          </td>
+                        </tr>
+                      )}
                     </React.Fragment>
                   )
                 }
@@ -1826,43 +1987,76 @@ export default function App() {
 
                 return (
                   <>
-                  {/* ── Filter tabs + legend bar ── */}
-                  <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
-                    {/* Filter pills */}
-                    <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-1 shadow-sm">
-                      {[
-                        { id: 'all',      label: 'All' },
-                        { id: 'media',    label: 'Media Only',     bg: 'bg-[#EFF6FF]', activeBg: 'bg-[#BFDBFE]', activeText: 'text-[#1D4ED8]' },
-                        { id: 'nonmedia', label: 'Non-Media Only', bg: 'bg-[#FFFBEB]', activeBg: 'bg-[#FDE68A]', activeText: 'text-[#92400E]' },
-                      ].map(({ id, label, activeBg, activeText }) => (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setBudgetFilter(id)}
-                          className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all ${
-                            budgetFilter === id
-                              ? id === 'media'    ? 'bg-[#BFDBFE] text-[#1D4ED8]'
-                              : id === 'nonmedia' ? 'bg-[#FDE68A] text-[#92400E]'
-                              : 'bg-[#2D1B69] text-white'
-                              : 'text-[#8A7BAB] hover:bg-slate-50'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                  {/* ── Save toast ── */}
+                  {budgetSaveToast && (
+                    <div className={`mb-3 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm ${
+                      budgetSaveToast === 'success'
+                        ? 'border border-[rgba(47,163,107,0.3)] bg-[#F0FBF5] text-[#1a7a4e]'
+                        : 'border border-red-200 bg-red-50 text-red-700'
+                    }`}>
+                      {budgetSaveToast === 'success' ? '✓ Budget saved successfully.' : '✗ Save failed — please try again.'}
                     </div>
+                  )}
 
-                    {/* Legend */}
-                    {hasMediaFlag && (
-                      <div className="flex items-center gap-4 text-[11px] font-medium text-[#6A5B88]">
-                        <span className="flex items-center gap-1.5">
-                          <span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" /> Media
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" /> Non-media
-                        </span>
+                  {/* ── Filter tabs + Edit button bar ── */}
+                  <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
+                    {/* Filter pills — hidden in edit mode */}
+                    {!budgetEditMode && (
+                      <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-1 shadow-sm">
+                        {[
+                          { id: 'all',      label: 'All' },
+                          { id: 'media',    label: 'Media Only',     activeBg: 'bg-[#BFDBFE]', activeText: 'text-[#1D4ED8]' },
+                          { id: 'nonmedia', label: 'Non-Media Only', activeBg: 'bg-[#FDE68A]', activeText: 'text-[#92400E]' },
+                        ].map(({ id, label }) => (
+                          <button key={id} type="button" onClick={() => setBudgetFilter(id)}
+                            className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                              budgetFilter === id
+                                ? id === 'media'    ? 'bg-[#BFDBFE] text-[#1D4ED8]'
+                                : id === 'nonmedia' ? 'bg-[#FDE68A] text-[#92400E]'
+                                : 'bg-[#2D1B69] text-white'
+                                : 'text-[#8A7BAB] hover:bg-slate-50'
+                            }`}>{label}</button>
+                        ))}
                       </div>
                     )}
+
+                    {budgetEditMode && (
+                      <p className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-[#F4F0FF] px-3 py-1.5 text-[11px] font-semibold text-[#4A148C]">
+                        <Edit2 className="h-3 w-3" aria-hidden /> Editing mode — click any field to edit. M = Media · NM = Non-Media
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      {/* Legend */}
+                      {hasMediaFlag && !budgetEditMode && (
+                        <div className="flex items-center gap-3 text-[11px] font-medium text-[#6A5B88]">
+                          <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" /> Media</span>
+                          <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" /> Non-media</span>
+                        </div>
+                      )}
+
+                      {/* Edit / Save / Cancel */}
+                      {!budgetEditMode ? (
+                        <button type="button" onClick={startEdit}
+                          className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F4F0FF]">
+                          <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Budget
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={cancelEdit} disabled={budgetSaving}
+                            className="rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#8A7BAB] transition hover:bg-slate-50 disabled:opacity-50">
+                            Cancel
+                          </button>
+                          <button type="button" onClick={saveBudget} disabled={budgetSaving}
+                            className="flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-[#28915f] disabled:opacity-50">
+                            {budgetSaving
+                              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Saving…</>
+                              : <><Save className="h-3.5 w-3.5" aria-hidden /> Save Changes</>
+                            }
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
