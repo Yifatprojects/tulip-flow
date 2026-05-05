@@ -895,6 +895,7 @@ export default function App() {
   const [draftRows, setDraftRows] = useState([])
   const [budgetSaving, setBudgetSaving] = useState(false)
   const [budgetSaveToast, setBudgetSaveToast] = useState(null) // 'success' | 'error' | null
+  const [budgetStatusSaving, setBudgetStatusSaving] = useState(false)
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -1024,6 +1025,7 @@ export default function App() {
       setBudgetEditMode(false)
       setDraftRows([])
       setBudgetSaveToast(null)
+      setBudgetStatusSaving(false)
       setActualExpensesRows([])
       setActualExpensesError(null)
       setIncomeRows([])
@@ -1657,6 +1659,40 @@ export default function App() {
           setDraftRows([])
         }
 
+        // ── Budget Status helpers ─────────────────────────────────────────────
+        const WORKFLOW_STAGES = [
+          { key: 'plan_pre',       label: 'Plan Pre' },
+          { key: 'screening_post', label: 'Screening Post' },
+          { key: 'final',          label: 'Final' },
+          { key: 'approved',       label: 'Approved' },
+        ]
+
+        // Auto-computed performance status based on live financial data
+        const computePerfStatus = () => {
+          if (filmBudget <= 0) return null
+          if (filmSpent > filmBudget) return 'overspend'
+          if (filmSpent <= filmBudget * 0.95) return 'underspend'
+          return null
+        }
+
+        const saveWorkflowStatus = async (newStatus) => {
+          setBudgetStatusSaving(true)
+          try {
+            const { error } = await supabase
+              .from('films')
+              .update({ budget_status: newStatus })
+              .eq('film_number', film.film_number)
+            if (error) throw new Error(error.message)
+            // Reflect immediately in the open modal without waiting for refresh
+            setSelectedMovie(prev => ({ ...prev, budget_status: newStatus }))
+            void refreshMovies()
+          } catch (err) {
+            console.error('Status save error:', err)
+          } finally {
+            setBudgetStatusSaving(false)
+          }
+        }
+
         const saveBudget = async () => {
           setBudgetSaving(true)
           try {
@@ -1746,6 +1782,72 @@ export default function App() {
                     </span>
                   )}
                 </p>
+
+                {/* ── Budget Status Widget ── */}
+                {(() => {
+                  const perfStatus   = computePerfStatus()
+                  const manualStatus = film.budget_status || 'plan_pre'
+
+                  const perfPalette =
+                    perfStatus === 'overspend'  ? { bg: '#FFF1F3', text: '#C0004C', border: '#FFBAC8' }
+                    : perfStatus === 'underspend' ? { bg: '#FFFBEB', text: '#D97706', border: '#FDE68A' }
+                    : manualStatus === 'approved' ? { bg: '#F0FBF5', text: '#2FA36B', border: '#A7F3D0' }
+                    : null
+
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {/* Stage stepper pills */}
+                      <div className="flex items-center gap-0.5 rounded-xl bg-[#F0EBFF] p-0.5">
+                        {WORKFLOW_STAGES.map(({ key, label }) => {
+                          const isActive = manualStatus === key
+                          let pillStyle = {}
+                          if (isActive) {
+                            if (perfStatus === 'overspend')       pillStyle = { background: '#C0004C', color: '#fff' }
+                            else if (perfStatus === 'underspend') pillStyle = { background: '#D97706', color: '#fff' }
+                            else if (key === 'approved')          pillStyle = { background: '#2FA36B', color: '#fff' }
+                            else                                  pillStyle = { background: '#4B4594', color: '#fff' }
+                          }
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              disabled={budgetStatusSaving}
+                              onClick={() => !budgetStatusSaving && saveWorkflowStatus(key)}
+                              style={pillStyle}
+                              className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all
+                                ${isActive ? 'shadow-sm' : 'text-[#8A7BAB] hover:bg-white/60'}`}
+                            >
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {/* Auto performance badge */}
+                      {perfStatus === 'overspend' && (
+                        <span style={{ background: '#FFF1F3', color: '#C0004C', borderColor: '#FFBAC8' }}
+                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
+                          ⚠ Overspend
+                        </span>
+                      )}
+                      {perfStatus === 'underspend' && (
+                        <span style={{ background: '#FFFBEB', color: '#D97706', borderColor: '#FDE68A' }}
+                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
+                          ↓ Underspend
+                        </span>
+                      )}
+                      {!perfStatus && manualStatus === 'approved' && (
+                        <span style={{ background: '#F0FBF5', color: '#2FA36B', borderColor: '#A7F3D0' }}
+                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
+                          ✓ On Track
+                        </span>
+                      )}
+                      {budgetStatusSaving && (
+                        <span className="text-[9px] italic text-[#8A7BAB]">Saving…</span>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <ExcelUploadButton
