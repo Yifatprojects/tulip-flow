@@ -19,7 +19,16 @@ import { LoginPage } from './LoginPage'
 /** @typedef {import('./types/movie').Movie} Movie */
 
 /** Fixed studio name options — shared across the app */
-const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Other']
+const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Independent']
+
+/** Normalize legacy DB value 'Other' → display as 'Independent' */
+const normalizeStudio = (s) => (s === 'Other' ? 'Independent' : s ?? '')
+
+/** Match filter: 'Independent' also catches legacy 'Other' rows in DB */
+const studioMatches = (movieStudio, filter) => {
+  const norm = normalizeStudio(String(movieStudio ?? '').trim())
+  return filter === 'Independent' ? norm === 'Independent' || String(movieStudio ?? '').trim() === 'Other' : norm === filter
+}
 
 /** Primary display title: English, else Hebrew */
 function movieTitleEnglish(movie) {
@@ -37,7 +46,7 @@ function movieTitleHebrewSubtitle(movie) {
 
 /** Studio name and film_number, e.g. "Universal • WB001" */
 function movieStudioAndCodeLabel(movie) {
-  const studio = movie.studio?.trim()
+  const studio = normalizeStudio(movie.studio?.trim())
   const code = movie.film_number?.trim()
   if (studio && code) return `${studio} • ${code}`
   if (code) return code
@@ -468,13 +477,14 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // When a specific studio is selected, resolve its film_numbers first
+        // When a specific studio is selected, resolve its film_numbers first.
+        // 'Independent' also catches legacy DB rows where studio = 'Other'.
         let filmNumbers = null
         if (summaryStudio) {
-          const { data: films } = await supabase
-            .from('films')
-            .select('film_number')
-            .eq('studio', summaryStudio)
+          const studioQuery = summaryStudio === 'Independent'
+            ? supabase.from('films').select('film_number').or('studio.eq.Independent,studio.eq.Other')
+            : supabase.from('films').select('film_number').eq('studio', summaryStudio)
+          const { data: films } = await studioQuery
           filmNumbers = (films ?? []).map(f => f.film_number)
           if (filmNumbers.length === 0) {
             if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
@@ -855,12 +865,13 @@ export default function App() {
     const merged = [...DEFAULT_STUDIO_OPTIONS]
     if (Array.isArray(movies)) {
       for (const m of movies) {
-        const s = m.studio?.trim()
+        const s = normalizeStudio(m.studio?.trim())
         if (s && !merged.includes(s)) merged.push(s)
       }
     }
-    merged.sort((a, b) => a.localeCompare(b))
-    return merged
+    // Keep 'Independent' always last; sort the rest alphabetically
+    const withoutInd = merged.filter(s => s !== 'Independent').sort((a, b) => a.localeCompare(b))
+    return [...withoutInd, 'Independent']
   }, [movies])
 
   // Close admin menu on outside click
@@ -881,7 +892,7 @@ export default function App() {
       : Array.isArray(movies) ? [...movies] : []
 
     if (studioFilter !== '') {
-      base = base.filter((m) => String(m.studio ?? '').trim() === studioFilter)
+      base = base.filter((m) => studioMatches(m.studio, studioFilter))
     }
 
     if (hideNoData && !isSearching) {
@@ -1613,7 +1624,7 @@ export default function App() {
                               <><SectionDivider label="Non-Media Spend" color="#92400E" bg="#FFFBEB" />{nonMediaGroups.map(renderGroup)}</>
                             )}
                             {unknownGroups.length > 0 && (
-                              <><SectionDivider label="Other" color="#6A5B88" bg="#F7F4FB" />{unknownGroups.map(renderGroup)}</>
+                              <><SectionDivider label="Other / Uncategorised" color="#6A5B88" bg="#F7F4FB" />{unknownGroups.map(renderGroup)}</>
                             )}
                           </>
                         ) : (

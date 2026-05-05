@@ -1085,7 +1085,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
   const fileInputRef = useRef(null)
 
   // Fixed studio list — same as the Add New Movie form
-  const STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Other']
+  const STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Independent']
 
   useEffect(() => {
     if (uploadType !== 'journal') return
@@ -1170,13 +1170,16 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
             .select('film_number, title_en, title_he, studio')
             .in('film_number', previewData.uniqueFilms)
 
+          // Normalise: treat legacy 'Other' as 'Independent' for comparison
+          const normStudio = (s) => (s === 'Other' ? 'Independent' : s ?? '')
+          const selected   = normStudio(journalStudio).toLowerCase()
           const wrongFilms = (filmRows ?? []).filter(
-            f => f.studio?.trim().toLowerCase() !== journalStudio.trim().toLowerCase()
+            f => normStudio(f.studio?.trim()).toLowerCase() !== selected
           )
 
           if (wrongFilms.length > 0) {
             const names = wrongFilms
-              .map(f => `"${f.title_en || f.title_he || f.film_number}" (studio: ${f.studio || 'unknown'})`)
+              .map(f => `"${f.title_en || f.title_he || f.film_number}" (studio: ${normStudio(f.studio) || 'unknown'})`)
               .join('\n')
             throw new Error(
               `Studio mismatch — you selected "${journalStudio}" but the file contains films from a different studio:\n\n${names}\n\nPlease select the correct studio or upload the right file.`
