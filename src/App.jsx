@@ -14,6 +14,7 @@ import { supabase } from './lib/supabaseClient'
 import tulipLogo from './assets/tulip-logo.png'
 import { ExcelUploadButton } from './ExcelUpload'
 import { FilmsManagementModal } from './FilmsManagement'
+import { CatalogsManagementModal } from './CatalogsManagement'
 import { LoginPage } from './LoginPage'
 
 /** @typedef {import('./types/movie').Movie} Movie */
@@ -880,6 +881,7 @@ export default function App() {
   const [hideNoData, setHideNoData] = useState(true)
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
+  const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
   const adminMenuRef = useRef(null)
 
   const [selectedMovie, setSelectedMovie] = useState(null)
@@ -1372,8 +1374,9 @@ export default function App() {
                     </button>
                     {adminMenuOpen && (
                       <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[200px] overflow-hidden rounded-xl border border-[rgba(74,20,140,0.15)] bg-white shadow-[0_16px_40px_rgba(74,20,140,0.18)]">
-                        {/* Manage Films */}
-                        <div className="border-b border-[rgba(74,20,140,0.08)] px-2 pb-2 pt-2">
+                        {/* Manage section */}
+                        <div className="border-b border-[rgba(74,20,140,0.08)] px-2 pb-2 pt-2 space-y-0.5">
+                          <p className="px-2.5 pb-1 pt-0.5 text-[0.55rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Manage</p>
                           <button
                             type="button"
                             onClick={() => { setAdminMenuOpen(false); setFilmsManagerOpen(true) }}
@@ -1381,6 +1384,22 @@ export default function App() {
                           >
                             <Clapperboard className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
                             Manage Films
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setAdminMenuOpen(false); setCatalogsManagerOpen('expenses') }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
+                          >
+                            <Receipt className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
+                            Manage Expenses Catalog
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setAdminMenuOpen(false); setCatalogsManagerOpen('rentals') }}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
+                          >
+                            <DollarSign className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
+                            Manage Rentals Catalog
                           </button>
                         </div>
                         <p className="px-3.5 pt-3 pb-1 text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Catalog Imports</p>
@@ -2194,6 +2213,13 @@ export default function App() {
           </div>
         )
       })()}
+
+      {catalogsManagerOpen && (
+        <CatalogsManagementModal
+          defaultTab={catalogsManagerOpen}
+          onClose={() => setCatalogsManagerOpen(null)}
+        />
+      )}
 
       {filmsManagerOpen && (
         <FilmsManagementModal onClose={() => { setFilmsManagerOpen(false); void refreshMovies() }} />
