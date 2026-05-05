@@ -527,10 +527,12 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       const ytdStart     = `${now.getFullYear()}-01-01`
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-      // Fetch all known films
+      // Fetch all known films — normalise film_number to string+trim to avoid
+      // type mismatches (DB may return integers; JS Set comparison is strict).
       const { data: allFilms } = await supabase.from('films').select('film_number, title_en, title_he, studio')
-      const filmMap     = Object.fromEntries((allFilms ?? []).map(f => [f.film_number, f]))
-      const knownSet    = new Set(Object.keys(filmMap))
+      const norm      = (v) => String(v ?? '').trim()
+      const filmMap   = Object.fromEntries((allFilms ?? []).map(f => [norm(f.film_number), f]))
+      const knownSet  = new Set(Object.keys(filmMap))
 
       // Fetch ALL expense & income rows (YTD) — no filter
       const [rawExp, rawInc] = await Promise.all([
@@ -541,36 +543,37 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       const allExp = rawExp.data ?? []
       const allInc = rawInc.data ?? []
 
-      // Partition into known vs orphaned
-      const orphanedExp = allExp.filter(r => !knownSet.has(r.film_number))
-      const orphanedInc = allInc.filter(r => !knownSet.has(r.film_number))
-      const knownExp    = allExp.filter(r => knownSet.has(r.film_number))
-      const knownInc    = allInc.filter(r => knownSet.has(r.film_number))
+      // Partition into known vs orphaned — normalise each row's film_number too
+      const orphanedExp = allExp.filter(r => !knownSet.has(norm(r.film_number)))
+      const orphanedInc = allInc.filter(r => !knownSet.has(norm(r.film_number)))
+      const knownExp    = allExp.filter(r =>  knownSet.has(norm(r.film_number)))
+      const knownInc    = allInc.filter(r =>  knownSet.has(norm(r.film_number)))
 
       const sumRows = (rows) => rows.reduce((s, r) => s + Number(r.actual_amount), 0)
 
       // Group orphaned by film_number
       const orphanByFilm = {}
       for (const r of [...orphanedExp, ...orphanedInc]) {
-        if (!orphanByFilm[r.film_number]) orphanByFilm[r.film_number] = { exp: 0, inc: 0, rows: 0 }
-        if (orphanedExp.includes(r)) orphanByFilm[r.film_number].exp += Number(r.actual_amount)
-        else orphanByFilm[r.film_number].inc += Number(r.actual_amount)
-        orphanByFilm[r.film_number].rows++
+        const key = norm(r.film_number)
+        if (!orphanByFilm[key]) orphanByFilm[key] = { exp: 0, inc: 0, rows: 0 }
+        if (orphanedExp.includes(r)) orphanByFilm[key].exp += Number(r.actual_amount)
+        else orphanByFilm[key].inc += Number(r.actual_amount)
+        orphanByFilm[key].rows++
       }
 
       // Group known by studio — use the RAW studio value from DB to expose variants
       const byStudio = {}
       for (const r of knownExp) {
-        const rawStudio = filmMap[r.film_number]?.studio?.trim() || '(blank)'
+        const rawStudio = filmMap[norm(r.film_number)]?.studio?.trim() || '(blank)'
         byStudio[rawStudio] = byStudio[rawStudio] ?? { exp: 0, inc: 0, films: new Set() }
         byStudio[rawStudio].exp += Number(r.actual_amount)
-        byStudio[rawStudio].films.add(r.film_number)
+        byStudio[rawStudio].films.add(norm(r.film_number))
       }
       for (const r of knownInc) {
-        const rawStudio = filmMap[r.film_number]?.studio?.trim() || '(blank)'
+        const rawStudio = filmMap[norm(r.film_number)]?.studio?.trim() || '(blank)'
         byStudio[rawStudio] = byStudio[rawStudio] ?? { exp: 0, inc: 0, films: new Set() }
         byStudio[rawStudio].inc += Number(r.actual_amount)
-        byStudio[rawStudio].films.add(r.film_number)
+        byStudio[rawStudio].films.add(norm(r.film_number))
       }
       // Convert Sets to counts for serialization
       const byStudioOut = Object.fromEntries(
