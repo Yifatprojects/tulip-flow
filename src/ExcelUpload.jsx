@@ -863,7 +863,7 @@ const MONTH_NAMES = [
  * Parse a journal file, route rows to expenses / income by priority_code,
  * validate film numbers, and check for existing data — no DB writes.
  */
-async function previewJournal(file, month, year) {
+async function previewJournal(file, month, year, studio) {
   const monthPeriod = `${year}-${String(month).padStart(2, '0')}-01`
   const monthLabel  = `${MONTH_NAMES[month - 1]} ${year}`
 
@@ -953,10 +953,34 @@ async function previewJournal(file, month, year) {
     }
   }
 
-  // ── Check for existing data this period ───────────────────────────────────
+  // ── Check for existing data this period (studio-aware) ───────────────────
+  // Fetch all film_numbers belonging to the selected studio so the conflict
+  // check is scoped to that studio only — uploading Studio A for Jan 2026 will
+  // NOT trigger an override prompt just because Studio B already has Jan 2026 data.
+  let studioFilmNumbers = null
+  if (studio) {
+    const normS = (s) => (s === 'Other' ? 'Independent' : s ?? '')
+    let studioQ = supabase.from('films').select('film_number')
+    if (normS(studio) === 'Independent') {
+      studioQ = studioQ.in('studio', ['Independent', 'Other'])
+    } else {
+      studioQ = studioQ.ilike('studio', studio.trim())
+    }
+    const { data: sFilms } = await studioQ
+    studioFilmNumbers = (sFilms ?? []).map((f) => String(f.film_number))
+  }
+
+  const buildCountQ = (table) => {
+    let q = supabase.from(table).select('film_number', { count: 'exact', head: true }).eq('month_period', monthPeriod)
+    if (studioFilmNumbers && studioFilmNumbers.length > 0) {
+      q = q.in('film_number', studioFilmNumbers)
+    }
+    return q
+  }
+
   const [existExpRes, existIncRes] = await Promise.allSettled([
-    supabase.from('actual_expenses')     .select('film_number', { count: 'exact', head: true }).eq('month_period', monthPeriod),
-    supabase.from('rental_transactions') .select('film_number', { count: 'exact', head: true }).eq('month_period', monthPeriod),
+    buildCountQ('actual_expenses'),
+    buildCountQ('rental_transactions'),
   ])
 
   const hasExistingData =
@@ -966,12 +990,14 @@ async function previewJournal(file, month, year) {
   return {
     expenseRows,
     incomeRows,
-    unknownCodes: [...unknownCodes],
-    unknownFilms: [...unknownFilms],    // these are profit_center values that had no matching film
-    uniqueFilms:  [...resolvedFilms],
+    unknownCodes:       [...unknownCodes],
+    unknownFilms:       [...unknownFilms],
+    uniqueFilms:        [...resolvedFilms],
     monthPeriod,
     monthLabel,
     hasExistingData,
+    studio,             // passed through for UI labels and targeted overwrite
+    studioFilmNumbers,  // used by executeJournalUpload to scope the delete
   }
 }
 
@@ -988,9 +1014,18 @@ async function executeJournalUpload(preview, mode) {
   console.log('[Journal] incomeRows  sample:', incomeRows.slice(0, 3))
 
   if (mode === 'overwrite') {
+    const { studioFilmNumbers } = preview
+    const buildDelQ = (table) => {
+      let q = supabase.from(table).delete().eq('month_period', monthPeriod)
+      // Scope the delete to this studio's films only — leaves other studios' data intact
+      if (studioFilmNumbers && studioFilmNumbers.length > 0) {
+        q = q.in('film_number', studioFilmNumbers)
+      }
+      return q
+    }
     const [delExp, delInc] = await Promise.all([
-      supabase.from('actual_expenses')     .delete().eq('month_period', monthPeriod),
-      supabase.from('rental_transactions') .delete().eq('month_period', monthPeriod),
+      buildDelQ('actual_expenses'),
+      buildDelQ('rental_transactions'),
     ])
     if (delExp.error) console.warn('[Journal] Delete actual_expenses error:', delExp.error)
     if (delInc.error) console.warn('[Journal] Delete rental_transactions error:', delInc.error)
@@ -1161,7 +1196,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
         setPreview(previewData)
         setStep('confirm')
       } else if (uploadType === 'journal') {
-        const previewData = await previewJournal(file, journalMonth, journalYear)
+        const previewData = await previewJournal(file, journalMonth, journalYear, journalStudio)
 
         // ── Studio guard ──────────────────────────────────────────────────────
         if (journalStudio && previewData.uniqueFilms.length > 0) {
@@ -1416,14 +1451,16 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
                 </div>
               )}
 
-              {/* Warning — existing data this period */}
+              {/* Warning — existing data this period (studio-scoped) */}
               {preview.hasExistingData && (
                 <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden />
                   <div className="text-sm text-amber-800">
-                    <p className="font-semibold">Data for {preview.monthLabel} already exists</p>
+                    <p className="font-semibold">
+                      Data for {preview.studio ? <strong>{preview.studio}</strong> : 'this studio'} in {preview.monthLabel} already exists
+                    </p>
                     <p className="mt-0.5 text-[12px] leading-snug text-amber-700">
-                      Choose <strong>Overwrite</strong> to delete all existing records for this period and re-import, or <strong>Append</strong> to add alongside the existing data.
+                      Choose <strong>Overwrite</strong> to replace only {preview.studio ?? 'this studio'}&apos;s records for this period, or <strong>Append</strong> to add alongside them. Other studios&apos; data for {preview.monthLabel} will not be affected.
                     </p>
                   </div>
                 </div>
@@ -1445,14 +1482,14 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
                       <button type="button" onClick={() => handleConfirmUpload('overwrite')} disabled={busy}
                         className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#E61E6E] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#cc1a61] disabled:opacity-50">
                         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-                        Overwrite {preview.monthLabel}
+                        Overwrite {preview.studio ? `${preview.studio} — ` : ''}{preview.monthLabel}
                       </button>
                     )}
                     {hasRows ? (
                       <button type="button" onClick={() => handleConfirmUpload('add')} disabled={busy}
                         className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4B4594] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#3a3477] disabled:opacity-50">
                         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-                        {preview.hasExistingData ? 'Append to existing' : `Import ${preview.expenseRows.length + preview.incomeRows.length} rows`}
+                        {preview.hasExistingData ? `Append to ${preview.studio ?? 'existing'}` : `Import ${preview.expenseRows.length + preview.incomeRows.length} rows`}
                       </button>
                     ) : (
                       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
