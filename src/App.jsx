@@ -481,29 +481,35 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // When a specific studio is selected, resolve its film identifiers.
-        // We fetch BOTH film_number AND profit_center because the journal import
-        // stores Column E (Profit Center) as actual_expenses.film_number.
-        // 'Independent' also catches legacy DB rows where studio = 'Other'.
+        // Mirror the audit's approach exactly:
+        // 1. Fetch ALL films (paginated) and build a studio→IDs map client-side.
+        //    This avoids ilike type/casing issues and ensures we collect BOTH
+        //    film_number AND profit_center for every studio film, since the journal
+        //    import may have stored either identifier in actual_expenses.film_number.
+        // 2. Fetch all expense/income rows for the period (paginated) then sum.
+        const FILM_PAGE = 1000
+        let allFilmsForKPI = [], kpiFilmFrom = 0
+        while (true) {
+          const { data: page } = await supabase
+            .from('films').select('film_number, profit_center, studio')
+            .range(kpiFilmFrom, kpiFilmFrom + FILM_PAGE - 1)
+          allFilmsForKPI = allFilmsForKPI.concat(page ?? [])
+          if (!page || page.length < FILM_PAGE) break
+          kpiFilmFrom += FILM_PAGE
+        }
+
+        const normId     = (v) => String(v ?? '').trim()
+        const normSt     = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
+        const selectedLc = normSt(summaryStudio).toLowerCase()
+
+        // Build set of all identifiers (film_number + profit_center) for the studio
         let filmNumbers = null
         if (summaryStudio) {
-          // Paginate to avoid the 1000-row Supabase default limit
-          const ST_PAGE = 1000
-          let studioFilms = [], stFrom = 0
-          while (true) {
-            const q = summaryStudio === 'Independent'
-              ? supabase.from('films').select('film_number, profit_center').or('studio.eq.Independent,studio.eq.Other')
-              : supabase.from('films').select('film_number, profit_center').ilike('studio', summaryStudio.trim())
-            const { data: page } = await q.range(stFrom, stFrom + ST_PAGE - 1)
-            studioFilms = studioFilms.concat(page ?? [])
-            if (!page || page.length < ST_PAGE) break
-            stFrom += ST_PAGE
-          }
-          // Collect both film_number and profit_center as valid linking keys
           const ids = new Set()
-          for (const f of studioFilms) {
-            if (f.film_number)   ids.add(String(f.film_number).trim())
-            if (f.profit_center) ids.add(String(f.profit_center).trim())
+          for (const f of allFilmsForKPI) {
+            if (normSt(f.studio).toLowerCase() !== selectedLc) continue
+            if (normId(f.film_number))   ids.add(normId(f.film_number))
+            if (normId(f.profit_center)) ids.add(normId(f.profit_center))
           }
           filmNumbers = [...ids].filter(Boolean)
           if (filmNumbers.length === 0) {
@@ -512,16 +518,29 @@ function DashboardSummaryRow({ studioOptions = [] }) {
           }
         }
 
+        // Helper: fetch ALL rows for a query, paginating past the 1000-row limit
+        const fetchAll = async (baseQ) => {
+          const PAGE = 1000
+          let rows = [], from = 0
+          while (true) {
+            const { data: page } = await baseQ.range(from, from + PAGE - 1)
+            rows = rows.concat(page ?? [])
+            if (!page || page.length < PAGE) break
+            from += PAGE
+          }
+          return rows
+        }
+
         const withFilms = (q) => filmNumbers ? q.in('film_number', filmNumbers) : q
 
         const [ce, ci, ye, yi] = await Promise.all([
-          withFilms(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth)),
-          withFilms(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth)),
-          withFilms(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
-          withFilms(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+          fetchAll(withFilms(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth))),
+          fetchAll(withFilms(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth))),
+          fetchAll(withFilms(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth))),
+          fetchAll(withFilms(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth))),
         ])
 
-        const sum = (r) => (r.data ?? []).reduce((s, row) => s + Number(row.actual_amount), 0)
+        const sum = (rows) => rows.reduce((s, row) => s + Number(row.actual_amount), 0)
         if (!cancelled) setSummary({
           currExpenses: sum(ce), currIncome: sum(ci),
           ytdExpenses:  sum(ye), ytdIncome:  sum(yi),
