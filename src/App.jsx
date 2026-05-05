@@ -481,45 +481,16 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // Mirror the audit's approach exactly:
-        // 1. Fetch ALL films (paginated) and build a studio→IDs map client-side.
-        //    This avoids ilike type/casing issues and ensures we collect BOTH
-        //    film_number AND profit_center for every studio film, since the journal
-        //    import may have stored either identifier in actual_expenses.film_number.
-        // 2. Fetch all expense/income rows for the period (paginated) then sum.
-        const FILM_PAGE = 1000
-        let allFilmsForKPI = [], kpiFilmFrom = 0
-        while (true) {
-          const { data: page } = await supabase
-            .from('films').select('film_number, profit_center, studio')
-            .range(kpiFilmFrom, kpiFilmFrom + FILM_PAGE - 1)
-          allFilmsForKPI = allFilmsForKPI.concat(page ?? [])
-          if (!page || page.length < FILM_PAGE) break
-          kpiFilmFrom += FILM_PAGE
-        }
+        // ── Fully client-side approach (mirrors the audit — guaranteed correct) ──
+        // Fetch ALL films + ALL financial rows for the period, then filter in JS.
+        // This avoids any server-side .in() type-mismatch or ilike issues that
+        // caused Universal (and potentially other studios) to show ₪0.00.
 
-        const normId     = (v) => String(v ?? '').trim()
-        const normSt     = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
-        const selectedLc = normSt(summaryStudio).toLowerCase()
+        const normId = (v) => String(v ?? '').trim()
+        const normSt = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
 
-        // Build set of all identifiers (film_number + profit_center) for the studio
-        let filmNumbers = null
-        if (summaryStudio) {
-          const ids = new Set()
-          for (const f of allFilmsForKPI) {
-            if (normSt(f.studio).toLowerCase() !== selectedLc) continue
-            if (normId(f.film_number))   ids.add(normId(f.film_number))
-            if (normId(f.profit_center)) ids.add(normId(f.profit_center))
-          }
-          filmNumbers = [...ids].filter(Boolean)
-          if (filmNumbers.length === 0) {
-            if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
-            return
-          }
-        }
-
-        // Helper: fetch ALL rows for a query, paginating past the 1000-row limit
-        const fetchAll = async (baseQ) => {
+        // Helper: paginate through any Supabase query
+        const fetchAllRows = async (baseQ, extraCols = '') => {
           const PAGE = 1000
           let rows = [], from = 0
           while (true) {
@@ -531,19 +502,36 @@ function DashboardSummaryRow({ studioOptions = [] }) {
           return rows
         }
 
-        const withFilms = (q) => filmNumbers ? q.in('film_number', filmNumbers) : q
+        // 1. Fetch ALL films → build filmMap keyed by film_number AND profit_center
+        const allFilmsKPI = await fetchAllRows(
+          supabase.from('films').select('film_number, profit_center, studio')
+        )
+        const filmMapKPI = {}
+        for (const f of allFilmsKPI) {
+          if (normId(f.film_number))   filmMapKPI[normId(f.film_number)]   = f
+          if (normId(f.profit_center)) filmMapKPI[normId(f.profit_center)] = f
+        }
 
-        const [ce, ci, ye, yi] = await Promise.all([
-          fetchAll(withFilms(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth))),
-          fetchAll(withFilms(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth))),
-          fetchAll(withFilms(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth))),
-          fetchAll(withFilms(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth))),
+        // 2. Fetch ALL financial rows for the period (no film filter)
+        const [allCurrExp, allCurrInc, allYtdExp, allYtdInc] = await Promise.all([
+          fetchAllRows(supabase.from('actual_expenses').select('film_number, actual_amount').eq('month_period', currentMonth)),
+          fetchAllRows(supabase.from('rental_transactions').select('film_number, actual_amount').eq('month_period', currentMonth)),
+          fetchAllRows(supabase.from('actual_expenses').select('film_number, actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+          fetchAllRows(supabase.from('rental_transactions').select('film_number, actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
         ])
 
-        const sum = (rows) => rows.reduce((s, row) => s + Number(row.actual_amount), 0)
+        // 3. Filter client-side by studio (or include everything for "All Studios")
+        const selectedLc = summaryStudio ? normSt(summaryStudio).toLowerCase() : null
+        const matchesStudio = (row) => {
+          if (!selectedLc) return true
+          const film = filmMapKPI[normId(row.film_number)]
+          return normSt(film?.studio ?? '').toLowerCase() === selectedLc
+        }
+
+        const sum = (rows) => rows.filter(matchesStudio).reduce((s, r) => s + Number(r.actual_amount), 0)
         if (!cancelled) setSummary({
-          currExpenses: sum(ce), currIncome: sum(ci),
-          ytdExpenses:  sum(ye), ytdIncome:  sum(yi),
+          currExpenses: sum(allCurrExp), currIncome: sum(allCurrInc),
+          ytdExpenses:  sum(allYtdExp),  ytdIncome:  sum(allYtdInc),
         })
       } finally {
         if (!cancelled) setLoading(false)
