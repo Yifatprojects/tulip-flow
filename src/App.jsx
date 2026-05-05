@@ -486,13 +486,21 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         // 'Independent' also catches legacy DB rows where studio = 'Other'.
         let filmNumbers = null
         if (summaryStudio) {
-          const studioQuery = summaryStudio === 'Independent'
-            ? supabase.from('films').select('film_number, profit_center').or('studio.eq.Independent,studio.eq.Other')
-            : supabase.from('films').select('film_number, profit_center').ilike('studio', summaryStudio.trim())
-          const { data: studioFilms } = await studioQuery
+          // Paginate to avoid the 1000-row Supabase default limit
+          const ST_PAGE = 1000
+          let studioFilms = [], stFrom = 0
+          while (true) {
+            const q = summaryStudio === 'Independent'
+              ? supabase.from('films').select('film_number, profit_center').or('studio.eq.Independent,studio.eq.Other')
+              : supabase.from('films').select('film_number, profit_center').ilike('studio', summaryStudio.trim())
+            const { data: page } = await q.range(stFrom, stFrom + ST_PAGE - 1)
+            studioFilms = studioFilms.concat(page ?? [])
+            if (!page || page.length < ST_PAGE) break
+            stFrom += ST_PAGE
+          }
           // Collect both film_number and profit_center as valid linking keys
           const ids = new Set()
-          for (const f of studioFilms ?? []) {
+          for (const f of studioFilms) {
             if (f.film_number)   ids.add(String(f.film_number).trim())
             if (f.profit_center) ids.add(String(f.profit_center).trim())
           }
@@ -534,18 +542,33 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       const ytdStart     = `${now.getFullYear()}-01-01`
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-      // Fetch all known films — include profit_center because the journal import
-      // stores Column E (מרכז רווח / Profit Center) as actual_expenses.film_number.
-      // So we must check BOTH film_number AND profit_center when identifying records.
-      const { data: allFilms } = await supabase.from('films').select('film_number, profit_center, title_en, title_he, studio')
-      const norm      = (v) => String(v ?? '').trim()
-      // Build a map keyed by both film_number and profit_center → same film object
-      const filmMap   = {}
-      for (const f of allFilms ?? []) {
+      const norm = (v) => String(v ?? '').trim()
+
+      // Fetch ALL films with pagination — Supabase default limit is 1000 rows,
+      // so a single query silently truncates on large datasets (4000+ films).
+      // We must page through to build a complete lookup map.
+      const FILM_PAGE = 1000
+      let allFilms = []
+      let filmFrom = 0
+      while (true) {
+        const { data: page } = await supabase
+          .from('films')
+          .select('film_number, profit_center, title_en, title_he, studio')
+          .range(filmFrom, filmFrom + FILM_PAGE - 1)
+        allFilms = allFilms.concat(page ?? [])
+        if (!page || page.length < FILM_PAGE) break
+        filmFrom += FILM_PAGE
+      }
+
+      // Build a map keyed by BOTH film_number AND profit_center → same film object.
+      // The journal import stores Column E (מרכז רווח / Profit Center) as
+      // actual_expenses.film_number, so we must accept either identifier.
+      const filmMap = {}
+      for (const f of allFilms) {
         if (norm(f.film_number))   filmMap[norm(f.film_number)]   = f
         if (norm(f.profit_center)) filmMap[norm(f.profit_center)] = f
       }
-      const knownSet  = new Set(Object.keys(filmMap))
+      const knownSet = new Set(Object.keys(filmMap))
 
       // Fetch ALL expense & income rows (YTD) — no filter
       const [rawExp, rawInc] = await Promise.all([
