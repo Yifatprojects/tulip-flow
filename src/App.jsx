@@ -464,9 +464,12 @@ function TrendChart({ filmNumber }) {
 
 // ── Dashboard Summary Row ─────────────────────────────────────────────────────
 function DashboardSummaryRow({ studioOptions = [] }) {
-  const [summary, setSummary]         = useState(null)
-  const [loading, setLoading]         = useState(false)
+  const [summary, setSummary]             = useState(null)
+  const [loading, setLoading]             = useState(false)
   const [summaryStudio, setSummaryStudio] = useState('') // '' = All Studios
+  const [auditData, setAuditData]         = useState(null)
+  const [auditLoading, setAuditLoading]   = useState(false)
+  const [showAudit, setShowAudit]         = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -477,28 +480,36 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // When a specific studio is selected, resolve its film_numbers first.
+        // ── Always fetch all known film_numbers first ──────────────────────────
+        // This ensures "All Studios" only sums data for films that exist in the
+        // films table, preventing orphaned records from inflating the totals.
+        const { data: allFilmsData } = await supabase.from('films').select('film_number')
+        const allFilmNumbers = (allFilmsData ?? []).map(f => f.film_number)
+
+        // When a specific studio is selected, narrow to that studio's films.
         // 'Independent' also catches legacy DB rows where studio = 'Other'.
-        let filmNumbers = null
+        let filmNumbers = allFilmNumbers
         if (summaryStudio) {
           const studioQuery = summaryStudio === 'Independent'
             ? supabase.from('films').select('film_number').or('studio.eq.Independent,studio.eq.Other')
             : supabase.from('films').select('film_number').eq('studio', summaryStudio)
-          const { data: films } = await studioQuery
-          filmNumbers = (films ?? []).map(f => f.film_number)
+          const { data: studioFilms } = await studioQuery
+          filmNumbers = (studioFilms ?? []).map(f => f.film_number)
           if (filmNumbers.length === 0) {
             if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
             return
           }
         }
 
-        const withStudio = (q) => filmNumbers ? q.in('film_number', filmNumbers) : q
+        const withFilms = (q) => filmNumbers.length > 0
+          ? q.in('film_number', filmNumbers)
+          : q.eq('film_number', '__no_match__') // if no films, return nothing
 
         const [ce, ci, ye, yi] = await Promise.all([
-          withStudio(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth)),
-          withStudio(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth)),
-          withStudio(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
-          withStudio(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+          withFilms(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth)),
+          withFilms(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth)),
+          withFilms(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+          withFilms(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
         ])
 
         const sum = (r) => (r.data ?? []).reduce((s, row) => s + Number(row.actual_amount), 0)
@@ -513,6 +524,71 @@ function DashboardSummaryRow({ studioOptions = [] }) {
     void load()
     return () => { cancelled = true }
   }, [summaryStudio])
+
+  // ── Data Audit ─────────────────────────────────────────────────────────────
+  async function runAudit() {
+    setAuditLoading(true)
+    setShowAudit(true)
+    try {
+      const now          = new Date()
+      const ytdStart     = `${now.getFullYear()}-01-01`
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+
+      // Fetch all known films
+      const { data: allFilms } = await supabase.from('films').select('film_number, title_en, title_he, studio')
+      const filmMap     = Object.fromEntries((allFilms ?? []).map(f => [f.film_number, f]))
+      const knownSet    = new Set(Object.keys(filmMap))
+
+      // Fetch ALL expense & income rows (YTD) — no filter
+      const [rawExp, rawInc] = await Promise.all([
+        supabase.from('actual_expenses').select('film_number, actual_amount, month_period').gte('month_period', ytdStart).lte('month_period', currentMonth),
+        supabase.from('rental_transactions').select('film_number, actual_amount, month_period').gte('month_period', ytdStart).lte('month_period', currentMonth),
+      ])
+
+      const allExp = rawExp.data ?? []
+      const allInc = rawInc.data ?? []
+
+      // Partition into known vs orphaned
+      const orphanedExp = allExp.filter(r => !knownSet.has(r.film_number))
+      const orphanedInc = allInc.filter(r => !knownSet.has(r.film_number))
+      const knownExp    = allExp.filter(r => knownSet.has(r.film_number))
+      const knownInc    = allInc.filter(r => knownSet.has(r.film_number))
+
+      const sumRows = (rows) => rows.reduce((s, r) => s + Number(r.actual_amount), 0)
+
+      // Group orphaned by film_number
+      const orphanByFilm = {}
+      for (const r of [...orphanedExp, ...orphanedInc]) {
+        if (!orphanByFilm[r.film_number]) orphanByFilm[r.film_number] = { exp: 0, inc: 0, rows: 0 }
+        if (orphanedExp.includes(r)) orphanByFilm[r.film_number].exp += Number(r.actual_amount)
+        else orphanByFilm[r.film_number].inc += Number(r.actual_amount)
+        orphanByFilm[r.film_number].rows++
+      }
+
+      // Group known by studio
+      const byStudio = {}
+      for (const r of knownExp) {
+        const studio = normalizeStudio(filmMap[r.film_number]?.studio) || 'Unknown'
+        byStudio[studio] = byStudio[studio] ?? { exp: 0, inc: 0 }
+        byStudio[studio].exp += Number(r.actual_amount)
+      }
+      for (const r of knownInc) {
+        const studio = normalizeStudio(filmMap[r.film_number]?.studio) || 'Unknown'
+        byStudio[studio] = byStudio[studio] ?? { exp: 0, inc: 0 }
+        byStudio[studio].inc += Number(r.actual_amount)
+      }
+
+      setAuditData({
+        totalExp: sumRows(allExp), totalInc: sumRows(allInc),
+        knownExp:  sumRows(knownExp),  knownInc:  sumRows(knownInc),
+        orphanExpTotal: sumRows(orphanedExp), orphanIncTotal: sumRows(orphanedInc),
+        orphanByFilm, byStudio,
+        orphanCount: orphanedExp.length + orphanedInc.length,
+      })
+    } finally {
+      setAuditLoading(false)
+    }
+  }
 
   const cards = [
     { label: 'Current Month Revenue',  value: summary?.currIncome   ?? 0, color: '#0EA5A0', icon: TrendingUp },
@@ -563,6 +639,16 @@ function DashboardSummaryRow({ studioOptions = [] }) {
               <X className="h-3 w-3" aria-hidden /> Clear Filter
             </button>
           )}
+          {/* Audit trigger */}
+          <button
+            type="button"
+            onClick={() => showAudit ? setShowAudit(false) : runAudit()}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-[rgba(74,20,140,0.18)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#8A7BAB] transition hover:bg-[#F4F0FF] hover:text-[#4A148C]"
+            title="Audit data consistency"
+          >
+            <Receipt className="h-3 w-3" aria-hidden />
+            {showAudit ? 'Hide Audit' : 'Audit Data'}
+          </button>
         </div>
       )}
 
@@ -586,6 +672,109 @@ function DashboardSummaryRow({ studioOptions = [] }) {
           </div>
         ))}
       </div>
+
+      {/* ── Data Audit Panel ── */}
+      {showAudit && (
+        <div className="mt-4 rounded-2xl border border-[rgba(74,20,140,0.2)] bg-white shadow-md overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[rgba(74,20,140,0.1)] bg-[#F7F2FF] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-[#4A148C]" aria-hidden />
+              <span className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-[#4A148C]">Data Consistency Audit — YTD</span>
+            </div>
+            <button type="button" onClick={() => setShowAudit(false)} className="text-[#8A7BAB] hover:text-[#4A148C]">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {auditLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-[#8A7BAB]">
+              <Loader2 className="h-4 w-4 animate-spin" /> Running audit…
+            </div>
+          ) : auditData ? (
+            <div className="p-4 space-y-4">
+
+              {/* ── Totals comparison ── */}
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Raw DB Total (expenses)', value: auditData.totalExp,   note: 'all rows, no filter',         color: '#C0392B' },
+                  { label: 'Known Films Total',        value: auditData.knownExp,  note: 'films present in films table', color: '#2FA36B' },
+                  { label: 'Orphaned (gap)',            value: auditData.orphanExpTotal, note: 'no matching film in DB',   color: auditData.orphanExpTotal > 0 ? '#E65100' : '#2FA36B' },
+                ].map(({ label, value, note, color }) => (
+                  <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-[#FAFAFA] px-3 py-2.5">
+                    <p className="text-[0.55rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">{label}</p>
+                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-base font-extrabold tabular-nums" style={{ color }}>{formatCurrency(value)}</p>
+                    <p className="text-[9px] text-[#A09ABB]">{note}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Breakdown by studio ── */}
+              {Object.keys(auditData.byStudio).length > 0 && (
+                <div>
+                  <p className="mb-2 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-[#4A148C]">Known expenses by studio</p>
+                  <div className="overflow-hidden rounded-xl border border-[rgba(74,20,140,0.1)]">
+                    <table className="w-full text-xs">
+                      <thead className="bg-[#F7F2FF]">
+                        <tr>
+                          {['Studio', 'Expenses (YTD)', 'Revenue (YTD)'].map(h => (
+                            <th key={h} className="px-3 py-2 text-left text-[0.6rem] font-bold uppercase tracking-[0.12em] text-[#8A7BAB]">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(auditData.byStudio).sort(([a],[b]) => a.localeCompare(b)).map(([studio, { exp, inc }]) => (
+                          <tr key={studio} className="border-t border-[rgba(74,20,140,0.06)]">
+                            <td className="px-3 py-2 font-semibold text-[#2D1B69]">{studio}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#C0392B]">{formatCurrency(exp)}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#0EA5A0]">{formatCurrency(inc)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Orphaned records ── */}
+              {auditData.orphanCount === 0 ? (
+                <div className="flex items-center gap-2 rounded-xl bg-[#F0FBF5] px-4 py-3 text-sm font-semibold text-[#2FA36B]">
+                  <span>✓</span> No orphaned records found — all financial data is linked to known films.
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-2 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-[#E65100]">
+                    ⚠ Orphaned records — {auditData.orphanCount} rows with unrecognised film numbers
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-[rgba(230,81,0,0.2)] bg-[#FFF8F5]">
+                    <table className="w-full text-xs">
+                      <thead className="bg-[#FFF0E6]">
+                        <tr>
+                          {['Film Number (not in films table)', 'Expenses', 'Revenue', 'Rows'].map(h => (
+                            <th key={h} className="px-3 py-2 text-left text-[0.6rem] font-bold uppercase tracking-[0.12em] text-[#E65100]">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(auditData.orphanByFilm).sort(([,a],[,b]) => (b.exp+b.inc)-(a.exp+a.inc)).map(([fn, { exp, inc, rows }]) => (
+                          <tr key={fn} className="border-t border-[rgba(230,81,0,0.1)]">
+                            <td className="px-3 py-2 font-['JetBrains_Mono',ui-monospace,monospace] font-semibold text-[#B34700]">{fn}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#C0392B]">{exp > 0 ? formatCurrency(exp) : '—'}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#0EA5A0]">{inc > 0 ? formatCurrency(inc) : '—'}</td>
+                            <td className="px-3 py-2 text-[#A09ABB]">{rows}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-[10px] text-[#E65100]">
+                    These records were excluded from the summary cards above. They exist in your financial tables but have no matching film in the films table — likely from a deleted or renamed film, or a test import.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }
