@@ -480,16 +480,23 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // When a specific studio is selected, resolve its film_numbers first.
+        // When a specific studio is selected, resolve its film identifiers.
+        // We fetch BOTH film_number AND profit_center because the journal import
+        // stores Column E (Profit Center) as actual_expenses.film_number.
         // 'Independent' also catches legacy DB rows where studio = 'Other'.
-        // We use ilike for studio matching to handle any case/whitespace variations.
         let filmNumbers = null
         if (summaryStudio) {
           const studioQuery = summaryStudio === 'Independent'
-            ? supabase.from('films').select('film_number').or('studio.eq.Independent,studio.eq.Other')
-            : supabase.from('films').select('film_number').ilike('studio', summaryStudio.trim())
+            ? supabase.from('films').select('film_number, profit_center').or('studio.eq.Independent,studio.eq.Other')
+            : supabase.from('films').select('film_number, profit_center').ilike('studio', summaryStudio.trim())
           const { data: studioFilms } = await studioQuery
-          filmNumbers = (studioFilms ?? []).map(f => String(f.film_number).trim())
+          // Collect both film_number and profit_center as valid linking keys
+          const ids = new Set()
+          for (const f of studioFilms ?? []) {
+            if (f.film_number)   ids.add(String(f.film_number).trim())
+            if (f.profit_center) ids.add(String(f.profit_center).trim())
+          }
+          filmNumbers = [...ids].filter(Boolean)
           if (filmNumbers.length === 0) {
             if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
             return
@@ -527,11 +534,17 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       const ytdStart     = `${now.getFullYear()}-01-01`
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
 
-      // Fetch all known films — normalise film_number to string+trim to avoid
-      // type mismatches (DB may return integers; JS Set comparison is strict).
-      const { data: allFilms } = await supabase.from('films').select('film_number, title_en, title_he, studio')
+      // Fetch all known films — include profit_center because the journal import
+      // stores Column E (מרכז רווח / Profit Center) as actual_expenses.film_number.
+      // So we must check BOTH film_number AND profit_center when identifying records.
+      const { data: allFilms } = await supabase.from('films').select('film_number, profit_center, title_en, title_he, studio')
       const norm      = (v) => String(v ?? '').trim()
-      const filmMap   = Object.fromEntries((allFilms ?? []).map(f => [norm(f.film_number), f]))
+      // Build a map keyed by both film_number and profit_center → same film object
+      const filmMap   = {}
+      for (const f of allFilms ?? []) {
+        if (norm(f.film_number))   filmMap[norm(f.film_number)]   = f
+        if (norm(f.profit_center)) filmMap[norm(f.profit_center)] = f
+      }
       const knownSet  = new Set(Object.keys(filmMap))
 
       // Fetch ALL expense & income rows (YTD) — no filter
