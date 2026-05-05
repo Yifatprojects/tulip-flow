@@ -14,6 +14,7 @@ function TInput({ value, onChange, placeholder, className = '', type = 'text' })
   return (
     <input
       type={type}
+      dir="auto"
       value={value ?? ''}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
@@ -41,6 +42,7 @@ function TCombo({ value, onChange, options, placeholder, listId }) {
     <>
       <input
         list={listId}
+        dir="auto"
         value={value ?? ''}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder ?? 'Type or select…'}
@@ -261,7 +263,7 @@ function ExpensesCatalog() {
                     <td className="px-3 py-2.5">
                       {isEditing
                         ? <TInput value={draft.expense_description} onChange={v => setDraft(p => ({ ...p, expense_description: v }))} />
-                        : <span className="text-[#2D1B69]">{row.expense_description}</span>
+                        : <span dir="auto" className="text-[#2D1B69]">{row.expense_description}</span>
                       }
                     </td>
                     <td className="px-3 py-2.5">
@@ -519,13 +521,13 @@ function RentalsCatalog() {
                     <td className="px-3 py-2.5">
                       {isEditing
                         ? <TInput value={draft.income_description} onChange={v => setDraft(p => ({ ...p, income_description: v }))} />
-                        : <span className="text-[#2D1B69]">{row.income_description}</span>
+                        : <span dir="auto" className="text-[#2D1B69]">{row.income_description}</span>
                       }
                     </td>
                     <td className="px-3 py-2.5">
                       {isEditing
                         ? <TCombo listId={`rental-fmt-${row.priority_code}`} value={draft.format_type} onChange={v => setDraft(p => ({ ...p, format_type: v }))} options={formatOptions} />
-                        : <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-[#6A5B88]">
+                        : <span dir="auto" className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-[#6A5B88]">
                             {row.format_type || '—'}
                           </span>
                       }
