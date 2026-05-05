@@ -35,6 +35,24 @@ function TSelect({ value, onChange, options, placeholder }) {
   )
 }
 
+// Combo: shows existing values as dropdown suggestions but also accepts free text
+function TCombo({ value, onChange, options, placeholder, listId }) {
+  return (
+    <>
+      <input
+        list={listId}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder ?? 'Type or select…'}
+        className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+      />
+      <datalist id={listId}>
+        {options.map(o => <option key={o} value={o} />)}
+      </datalist>
+    </>
+  )
+}
+
 function Toast({ toast }) {
   if (!toast) return null
   const isOk = toast.type === 'success'
@@ -341,6 +359,11 @@ function RentalsCatalog() {
 
   useEffect(() => { void load() }, [])
 
+  // Derive distinct, sorted format_type values directly from the loaded rows
+  const formatOptions = [...new Set(
+    rows.map(r => r.format_type).filter(Boolean)
+  )].sort()
+
   const filtered = rows.filter(r => {
     const q = search.toLowerCase()
     return !q
@@ -468,7 +491,7 @@ function RentalsCatalog() {
                 <tr className="border-t border-[rgba(74,20,140,0.1)] bg-[#F4F0FF]">
                   <td className="px-3 py-2"><TInput value={newRow.priority_code} onChange={v => setNewRow(p => ({ ...p, priority_code: v }))} placeholder="Code *" /></td>
                   <td className="px-3 py-2"><TInput value={newRow.income_description} onChange={v => setNewRow(p => ({ ...p, income_description: v }))} placeholder="Item name *" /></td>
-                  <td className="px-3 py-2"><TSelect value={newRow.format_type} onChange={v => setNewRow(p => ({ ...p, format_type: v }))} options={RENTAL_CATEGORY_OPTIONS} placeholder="Format…" /></td>
+                  <td className="px-3 py-2"><TCombo listId="rental-fmt-new" value={newRow.format_type} onChange={v => setNewRow(p => ({ ...p, format_type: v }))} options={formatOptions} placeholder="Format…" /></td>
                   <td className="px-3 py-2"><TInput value={newRow.reporting_code} onChange={v => setNewRow(p => ({ ...p, reporting_code: v }))} placeholder="Rpt code…" /></td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
@@ -501,7 +524,7 @@ function RentalsCatalog() {
                     </td>
                     <td className="px-3 py-2.5">
                       {isEditing
-                        ? <TSelect value={draft.format_type} onChange={v => setDraft(p => ({ ...p, format_type: v }))} options={RENTAL_CATEGORY_OPTIONS} />
+                        ? <TCombo listId={`rental-fmt-${row.priority_code}`} value={draft.format_type} onChange={v => setDraft(p => ({ ...p, format_type: v }))} options={formatOptions} />
                         : <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-[#6A5B88]">
                             {row.format_type || '—'}
                           </span>
