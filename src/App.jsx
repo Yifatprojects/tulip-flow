@@ -454,52 +454,128 @@ function TrendChart({ filmNumber }) {
 }
 
 // ── Dashboard Summary Row ─────────────────────────────────────────────────────
-function DashboardSummaryRow() {
-  const [summary, setSummary] = useState(null)
+function DashboardSummaryRow({ studioOptions = [] }) {
+  const [summary, setSummary]         = useState(null)
+  const [loading, setLoading]         = useState(false)
+  const [summaryStudio, setSummaryStudio] = useState('') // '' = All Studios
 
   useEffect(() => {
-    const now = new Date()
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-    const ytdStart = `${now.getFullYear()}-01-01`
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const now          = new Date()
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+        const ytdStart     = `${now.getFullYear()}-01-01`
 
-    Promise.all([
-      supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth),
-      supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth),
-      supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth),
-      supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth),
-    ]).then(([ce, ci, ye, yi]) => {
-      const sum = (rows) => (rows.data ?? []).reduce((s, r) => s + Number(r.actual_amount), 0)
-      setSummary({
-        currExpenses: sum(ce), currIncome: sum(ci),
-        ytdExpenses:  sum(ye), ytdIncome:  sum(yi),
-      })
-    })
-  }, [])
+        // When a specific studio is selected, resolve its film_numbers first
+        let filmNumbers = null
+        if (summaryStudio) {
+          const { data: films } = await supabase
+            .from('films')
+            .select('film_number')
+            .eq('studio', summaryStudio)
+          filmNumbers = (films ?? []).map(f => f.film_number)
+          if (filmNumbers.length === 0) {
+            if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
+            return
+          }
+        }
 
-  if (!summary) return null
+        const withStudio = (q) => filmNumbers ? q.in('film_number', filmNumbers) : q
+
+        const [ce, ci, ye, yi] = await Promise.all([
+          withStudio(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth)),
+          withStudio(supabase.from('rental_transactions').select('actual_amount').eq('month_period', currentMonth)),
+          withStudio(supabase.from('actual_expenses').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+          withStudio(supabase.from('rental_transactions').select('actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+        ])
+
+        const sum = (r) => (r.data ?? []).reduce((s, row) => s + Number(row.actual_amount), 0)
+        if (!cancelled) setSummary({
+          currExpenses: sum(ce), currIncome: sum(ci),
+          ytdExpenses:  sum(ye), ytdIncome:  sum(yi),
+        })
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [summaryStudio])
 
   const cards = [
-    { label: 'Current Month Revenue', value: summary.currIncome,   color: '#0EA5A0', icon: TrendingUp },
-    { label: 'Current Month Expenses', value: summary.currExpenses, color: '#C0392B', icon: Receipt },
-    { label: 'Revenue YTD',           value: summary.ytdIncome,    color: '#2FA36B', icon: DollarSign },
-    { label: 'Expenses YTD',          value: summary.ytdExpenses,  color: '#7B52AB', icon: Film },
+    { label: 'Current Month Revenue',  value: summary?.currIncome   ?? 0, color: '#0EA5A0', icon: TrendingUp },
+    { label: 'Current Month Expenses', value: summary?.currExpenses ?? 0, color: '#C0392B', icon: Receipt },
+    { label: 'Revenue YTD',            value: summary?.ytdIncome    ?? 0, color: '#2FA36B', icon: DollarSign },
+    { label: 'Expenses YTD',           value: summary?.ytdExpenses  ?? 0, color: '#7B52AB', icon: Film },
   ]
 
   return (
-    <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {cards.map(({ label, value, color, icon: Icon }) => (
-        <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)]">
-          <div className="mb-2 flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
-              <Icon className="h-3.5 w-3.5" style={{ color }} aria-hidden />
-            </div>
-            <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
+    <div className="mb-8">
+      {/* ── Studio filter bar ── */}
+      {studioOptions.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="text-[0.6rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">Filter by Studio</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSummaryStudio('')}
+              className={`rounded-lg px-3 py-1 text-[11px] font-semibold transition-all ${
+                summaryStudio === ''
+                  ? 'bg-[#4A148C] text-white shadow-sm'
+                  : 'border border-[rgba(74,20,140,0.18)] bg-white text-[#8A7BAB] hover:bg-[#F4F0FF] hover:text-[#4A148C]'
+              }`}
+            >
+              All Studios
+            </button>
+            {studioOptions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSummaryStudio(s)}
+                className={`rounded-lg px-3 py-1 text-[11px] font-semibold transition-all ${
+                  summaryStudio === s
+                    ? 'bg-[#4A148C] text-white shadow-sm'
+                    : 'border border-[rgba(74,20,140,0.18)] bg-white text-[#8A7BAB] hover:bg-[#F4F0FF] hover:text-[#4A148C]'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
           </div>
-          <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
-            {formatCurrency(value)}
-          </p>
+          {summaryStudio && (
+            <button
+              type="button"
+              onClick={() => setSummaryStudio('')}
+              className="ml-1 flex items-center gap-1 rounded-lg border border-[rgba(198,40,40,0.2)] bg-[#FFF5F5] px-2 py-1 text-[10px] font-semibold text-[#C62828] transition hover:bg-[#FFEBEE]"
+            >
+              <X className="h-3 w-3" aria-hidden /> Clear Filter
+            </button>
+          )}
         </div>
-      ))}
+      )}
+
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {cards.map(({ label, value, color, icon: Icon }) => (
+          <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)]">
+            <div className="mb-2 flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
+                <Icon className="h-3.5 w-3.5" style={{ color }} aria-hidden />
+              </div>
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
+            </div>
+            {loading ? (
+              <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
+            ) : (
+              <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
+                {formatCurrency(value)}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1053,7 +1129,7 @@ export default function App() {
             </header>
 
             {/* Monthly summary row */}
-            {movies !== null && !loadError && <DashboardSummaryRow />}
+            {movies !== null && !loadError && <DashboardSummaryRow studioOptions={studioFilterOptions} />}
 
           {movies === null && (
             <div className="flex items-center justify-center py-32">
