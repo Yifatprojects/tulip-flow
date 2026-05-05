@@ -480,30 +480,23 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
 
-        // ── Always fetch all known film_numbers first ──────────────────────────
-        // This ensures "All Studios" only sums data for films that exist in the
-        // films table, preventing orphaned records from inflating the totals.
-        const { data: allFilmsData } = await supabase.from('films').select('film_number')
-        const allFilmNumbers = (allFilmsData ?? []).map(f => f.film_number)
-
-        // When a specific studio is selected, narrow to that studio's films.
+        // When a specific studio is selected, resolve its film_numbers first.
         // 'Independent' also catches legacy DB rows where studio = 'Other'.
-        let filmNumbers = allFilmNumbers
+        // We use ilike for studio matching to handle any case/whitespace variations.
+        let filmNumbers = null
         if (summaryStudio) {
           const studioQuery = summaryStudio === 'Independent'
             ? supabase.from('films').select('film_number').or('studio.eq.Independent,studio.eq.Other')
-            : supabase.from('films').select('film_number').eq('studio', summaryStudio)
+            : supabase.from('films').select('film_number').ilike('studio', summaryStudio.trim())
           const { data: studioFilms } = await studioQuery
-          filmNumbers = (studioFilms ?? []).map(f => f.film_number)
+          filmNumbers = (studioFilms ?? []).map(f => String(f.film_number).trim())
           if (filmNumbers.length === 0) {
             if (!cancelled) setSummary({ currExpenses: 0, currIncome: 0, ytdExpenses: 0, ytdIncome: 0 })
             return
           }
         }
 
-        const withFilms = (q) => filmNumbers.length > 0
-          ? q.in('film_number', filmNumbers)
-          : q.eq('film_number', '__no_match__') // if no films, return nothing
+        const withFilms = (q) => filmNumbers ? q.in('film_number', filmNumbers) : q
 
         const [ce, ci, ye, yi] = await Promise.all([
           withFilms(supabase.from('actual_expenses').select('actual_amount').eq('month_period', currentMonth)),
@@ -565,24 +558,40 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         orphanByFilm[r.film_number].rows++
       }
 
-      // Group known by studio
+      // Group known by studio — use the RAW studio value from DB to expose variants
       const byStudio = {}
       for (const r of knownExp) {
-        const studio = normalizeStudio(filmMap[r.film_number]?.studio) || 'Unknown'
-        byStudio[studio] = byStudio[studio] ?? { exp: 0, inc: 0 }
-        byStudio[studio].exp += Number(r.actual_amount)
+        const rawStudio = filmMap[r.film_number]?.studio?.trim() || '(blank)'
+        byStudio[rawStudio] = byStudio[rawStudio] ?? { exp: 0, inc: 0, films: new Set() }
+        byStudio[rawStudio].exp += Number(r.actual_amount)
+        byStudio[rawStudio].films.add(r.film_number)
       }
       for (const r of knownInc) {
-        const studio = normalizeStudio(filmMap[r.film_number]?.studio) || 'Unknown'
-        byStudio[studio] = byStudio[studio] ?? { exp: 0, inc: 0 }
-        byStudio[studio].inc += Number(r.actual_amount)
+        const rawStudio = filmMap[r.film_number]?.studio?.trim() || '(blank)'
+        byStudio[rawStudio] = byStudio[rawStudio] ?? { exp: 0, inc: 0, films: new Set() }
+        byStudio[rawStudio].inc += Number(r.actual_amount)
+        byStudio[rawStudio].films.add(r.film_number)
       }
+      // Convert Sets to counts for serialization
+      const byStudioOut = Object.fromEntries(
+        Object.entries(byStudio).map(([k, v]) => [k, { exp: v.exp, inc: v.inc, filmCount: v.films.size }])
+      )
+
+      // Detect studio name variants that look like duplicates (case-insensitive)
+      const studioVariants = {}
+      for (const f of allFilms ?? []) {
+        const raw = f.studio?.trim() || '(blank)'
+        const key = raw.toLowerCase()
+        studioVariants[key] = studioVariants[key] ?? []
+        if (!studioVariants[key].includes(raw)) studioVariants[key].push(raw)
+      }
+      const duplicateVariants = Object.values(studioVariants).filter(v => v.length > 1)
 
       setAuditData({
         totalExp: sumRows(allExp), totalInc: sumRows(allInc),
         knownExp:  sumRows(knownExp),  knownInc:  sumRows(knownInc),
         orphanExpTotal: sumRows(orphanedExp), orphanIncTotal: sumRows(orphanedInc),
-        orphanByFilm, byStudio,
+        orphanByFilm, byStudio: byStudioOut, duplicateVariants,
         orphanCount: orphanedExp.length + orphanedInc.length,
       })
     } finally {
@@ -708,25 +717,50 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                 ))}
               </div>
 
-              {/* ── Breakdown by studio ── */}
+              {/* ── Studio name variant warning ── */}
+              {auditData.duplicateVariants?.length > 0 && (
+                <div className="rounded-xl border border-[rgba(230,81,0,0.25)] bg-[#FFF8F5] px-4 py-3">
+                  <p className="mb-1.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#E65100]">
+                    ⚠ Studio name inconsistencies detected
+                  </p>
+                  <p className="mb-2 text-[10px] text-[#B34700]">
+                    These studio names look like the same studio but are stored differently in your database. This causes the studio filter to miss records.
+                  </p>
+                  {auditData.duplicateVariants.map((variants, i) => (
+                    <div key={i} className="mb-1 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] text-[#8A7BAB]">Variants:</span>
+                      {variants.map(v => (
+                        <span key={v} className="rounded bg-[#FFE0CC] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#B34700]">
+                          "{v}"
+                        </span>
+                      ))}
+                    </div>
+                  ))}
+                  <p className="mt-2 text-[10px] text-[#E65100]">Fix: standardise these in Supabase or via the Films Management page.</p>
+                </div>
+              )}
+
+              {/* ── Breakdown by studio (raw DB values) ── */}
               {Object.keys(auditData.byStudio).length > 0 && (
                 <div>
-                  <p className="mb-2 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-[#4A148C]">Known expenses by studio</p>
+                  <p className="mb-1 text-[0.6rem] font-bold uppercase tracking-[0.16em] text-[#4A148C]">Expenses by studio</p>
+                  <p className="mb-2 text-[9px] text-[#8A7BAB]">Showing exact studio values as stored in the database — inconsistencies split into separate rows.</p>
                   <div className="overflow-hidden rounded-xl border border-[rgba(74,20,140,0.1)]">
                     <table className="w-full text-xs">
                       <thead className="bg-[#F7F2FF]">
                         <tr>
-                          {['Studio', 'Expenses (YTD)', 'Revenue (YTD)'].map(h => (
+                          {['Studio (raw DB value)', 'Films', 'Expenses (YTD)', 'Revenue (YTD)'].map(h => (
                             <th key={h} className="px-3 py-2 text-left text-[0.6rem] font-bold uppercase tracking-[0.12em] text-[#8A7BAB]">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {Object.entries(auditData.byStudio).sort(([a],[b]) => a.localeCompare(b)).map(([studio, { exp, inc }]) => (
+                        {Object.entries(auditData.byStudio).sort(([a],[b]) => a.localeCompare(b)).map(([studio, { exp, inc, filmCount }]) => (
                           <tr key={studio} className="border-t border-[rgba(74,20,140,0.06)]">
-                            <td className="px-3 py-2 font-semibold text-[#2D1B69]">{studio}</td>
-                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#C0392B]">{formatCurrency(exp)}</td>
-                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#0EA5A0]">{formatCurrency(inc)}</td>
+                            <td className="px-3 py-2 font-['JetBrains_Mono',ui-monospace,monospace] font-semibold text-[#2D1B69]">"{studio}"</td>
+                            <td className="px-3 py-2 text-[#8A7BAB]">{filmCount}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#C0392B]">{exp > 0 ? formatCurrency(exp) : '—'}</td>
+                            <td className="px-3 py-2 font-['Montserrat',sans-serif] tabular-nums text-[#0EA5A0]">{inc > 0 ? formatCurrency(inc) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
