@@ -560,11 +560,12 @@ export function CatalogsManagementModal({ onClose, defaultTab = 'expenses' }) {
   const current = TABS.find(t => t.id === activeTab)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-8 backdrop-blur-sm">
-      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-[0_32px_80px_rgba(74,20,140,0.22)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="flex w-full max-w-5xl flex-col rounded-2xl bg-white shadow-[0_32px_80px_rgba(74,20,140,0.22)]"
+           style={{ maxHeight: 'calc(100vh - 2rem)' }}>
 
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-[rgba(74,20,140,0.12)] px-6 py-5">
+        {/* Header — fixed, never scrolls */}
+        <div className="flex shrink-0 items-start justify-between border-b border-[rgba(74,20,140,0.12)] px-6 py-5">
           <div>
             <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Admin · Catalog Management</p>
             <h2 className="mt-0.5 font-['Montserrat',sans-serif] text-xl font-extrabold text-[#4A148C]">{current?.label}</h2>
@@ -576,8 +577,8 @@ export function CatalogsManagementModal({ onClose, defaultTab = 'expenses' }) {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-[rgba(74,20,140,0.1)] px-6">
+        {/* Tabs — fixed, never scrolls */}
+        <div className="flex shrink-0 gap-1 border-b border-[rgba(74,20,140,0.1)] px-6">
           {TABS.map(({ id, label }) => (
             <button
               key={id} type="button" onClick={() => setActiveTab(id)}
@@ -592,8 +593,8 @@ export function CatalogsManagementModal({ onClose, defaultTab = 'expenses' }) {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="p-6">
+        {/* Content — only this section scrolls */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {activeTab === 'expenses' ? <ExpensesCatalog /> : <RentalsCatalog />}
         </div>
       </div>
