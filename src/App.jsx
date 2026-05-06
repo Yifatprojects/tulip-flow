@@ -1167,14 +1167,14 @@ export default function App() {
 
   const isSearching = searchTerm.trim() !== ''
 
-  // Returns 'overspend' | 'underspend' | null based on live financial data
+  // Returns 'overspend' | 'underspend' | 'approved' | null based on live financial data
   const getFilmPerfStatus = useCallback((m) => {
     const budget = Number(movieBudgetTotals[m.film_number] ?? 0)
     const spent  = Number(movieMarketingTotals[m.film_number] ?? 0)
-    if (budget <= 0) return null
-    if (spent > budget) return 'overspend'
-    if (spent <= budget * 0.95) return 'underspend'
-    return null
+    if (budget <= 0 || spent <= 0) return null
+    if (spent > budget)            return 'overspend'
+    if (spent <= budget * 0.95)    return 'underspend'
+    return 'approved'
   }, [movieBudgetTotals, movieMarketingTotals])
 
   const filteredMovies = useMemo(() => {
@@ -1187,9 +1187,11 @@ export default function App() {
     }
 
     if (statusFilter !== '') {
-      if (statusFilter === 'overspend' || statusFilter === 'underspend') {
+      // approved / underspend / overspend are all auto-computed from financial data
+      if (['approved', 'overspend', 'underspend'].includes(statusFilter)) {
         base = base.filter((m) => getFilmPerfStatus(m) === statusFilter)
       } else {
+        // plan_pre / screening_post / final are manual stages stored on the film
         base = base.filter((m) => (m.budget_status || 'plan_pre') === statusFilter)
       }
     }
@@ -1726,19 +1728,22 @@ export default function App() {
         }
 
         // ── Budget Status helpers ─────────────────────────────────────────────
+        // Only the 3 manual workflow stages — user clicks to advance
         const WORKFLOW_STAGES = [
           { key: 'plan_pre',       label: 'Plan Pre' },
           { key: 'screening_post', label: 'Screening Post' },
           { key: 'final',          label: 'Final' },
-          { key: 'approved',       label: 'Approved' },
         ]
 
-        // Auto-computed performance status based on live financial data
+        // Auto-computed performance status — always derived from live financial data
+        // 'approved'  → spending is healthy (>0 and ≤ budget, within 5%)
+        // 'underspend'→ actual is more than 5% below planned
+        // 'overspend' → actual exceeds planned
         const computePerfStatus = () => {
-          if (filmBudget <= 0) return null
-          if (filmSpent > filmBudget) return 'overspend'
-          if (filmSpent <= filmBudget * 0.95) return 'underspend'
-          return null
+          if (filmBudget <= 0 || filmSpent <= 0) return null
+          if (filmSpent > filmBudget)            return 'overspend'
+          if (filmSpent <= filmBudget * 0.95)    return 'underspend'
+          return 'approved'
         }
 
         const saveWorkflowStatus = async (newStatus) => {
@@ -1854,32 +1859,19 @@ export default function App() {
                   const perfStatus   = computePerfStatus()
                   const manualStatus = film.budget_status || 'plan_pre'
 
-                  const perfPalette =
-                    perfStatus === 'overspend'  ? { bg: '#FFF1F3', text: '#C0004C', border: '#FFBAC8' }
-                    : perfStatus === 'underspend' ? { bg: '#FFFBEB', text: '#D97706', border: '#FDE68A' }
-                    : manualStatus === 'approved' ? { bg: '#F0FBF5', text: '#2FA36B', border: '#A7F3D0' }
-                    : null
-
                   return (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {/* Stage stepper pills */}
+                      {/* 3 manual stage pills — always purple, no perf color override */}
                       <div className="flex items-center gap-0.5 rounded-xl bg-[#F0EBFF] p-0.5">
                         {WORKFLOW_STAGES.map(({ key, label }) => {
                           const isActive = manualStatus === key
-                          let pillStyle = {}
-                          if (isActive) {
-                            if (perfStatus === 'overspend')       pillStyle = { background: '#C0004C', color: '#fff' }
-                            else if (perfStatus === 'underspend') pillStyle = { background: '#D97706', color: '#fff' }
-                            else if (key === 'approved')          pillStyle = { background: '#2FA36B', color: '#fff' }
-                            else                                  pillStyle = { background: '#4B4594', color: '#fff' }
-                          }
                           return (
                             <button
                               key={key}
                               type="button"
                               disabled={budgetStatusSaving}
                               onClick={() => !budgetStatusSaving && saveWorkflowStatus(key)}
-                              style={pillStyle}
+                              style={isActive ? { background: '#4B4594', color: '#fff' } : {}}
                               className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all
                                 ${isActive ? 'shadow-sm' : 'text-[#8A7BAB] hover:bg-white/60'}`}
                             >
@@ -1889,11 +1881,11 @@ export default function App() {
                         })}
                       </div>
 
-                      {/* Auto performance badge */}
-                      {perfStatus === 'overspend' && (
-                        <span style={{ background: '#FFF1F3', color: '#C0004C', borderColor: '#FFBAC8' }}
+                      {/* Auto performance badge — computed from live data */}
+                      {perfStatus === 'approved' && (
+                        <span style={{ background: '#F0FBF5', color: '#2FA36B', borderColor: '#A7F3D0' }}
                           className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
-                          ⚠ Overspend
+                          ✓ Approved
                         </span>
                       )}
                       {perfStatus === 'underspend' && (
@@ -1902,10 +1894,10 @@ export default function App() {
                           ↓ Underspend
                         </span>
                       )}
-                      {!perfStatus && manualStatus === 'approved' && (
-                        <span style={{ background: '#F0FBF5', color: '#2FA36B', borderColor: '#A7F3D0' }}
+                      {perfStatus === 'overspend' && (
+                        <span style={{ background: '#FFF1F3', color: '#C0004C', borderColor: '#FFBAC8' }}
                           className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
-                          ✓ On Track
+                          ⚠ Overspend
                         </span>
                       )}
                       {budgetStatusSaving && (
