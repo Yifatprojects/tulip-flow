@@ -308,22 +308,22 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
       {/* Title row */}
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="truncate font-['Montserrat',sans-serif] text-sm font-bold leading-tight text-[#F9B233]">
+          <div className="flex min-w-0 flex-wrap items-start gap-1.5">
+            <h3 className="break-words font-['Montserrat',sans-serif] text-sm font-bold leading-snug text-[#F9B233]" dir="auto">
               {movieTitleEnglish(movie)}
             </h3>
             {isOverBudget && (
-              <span className="shrink-0 rounded-full bg-[#FFE5EC] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E61E6E] ring-1 ring-[#E61E6E]/30">
+              <span className="shrink-0 self-start rounded-full bg-[#FFE5EC] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E61E6E] ring-1 ring-[#E61E6E]/30">
                 Over Budget
               </span>
             )}
           </div>
           {movieTitleHebrewSubtitle(movie) && (
-            <p className="mt-0.5 truncate text-[10px] leading-snug text-[#9A8AB8]" dir="rtl" lang="he">
+            <p className="mt-0.5 break-words text-[10px] leading-snug text-[#9A8AB8]" dir="rtl" lang="he">
               {movieTitleHebrewSubtitle(movie)}
             </p>
           )}
-          <p className="mt-0.5 truncate text-[10px] text-[#6A5B88]">{movieStudioAndCodeLabel(movie)}</p>
+          <p className="mt-0.5 text-[10px] text-[#6A5B88]">{movieStudioAndCodeLabel(movie)}</p>
           {/* Profit center + release date chips */}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {movie.profit_center && (
@@ -1509,7 +1509,7 @@ export default function App() {
 
           {movies !== null && !loadError && (
             <>
-              <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(300px,min(40%,34rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
+              <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(380px,min(52%,48rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
               <section className="min-w-0" aria-label="Movies">
                 <div
                   className={`rounded-2xl ${brandBorder} bg-white/88 p-4 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))]`}
@@ -1638,7 +1638,7 @@ export default function App() {
                           items={filteredMovies.map((m) => m.film_number)}
                           strategy={verticalListSortingStrategy}
                         >
-                          <ul className="grid gap-2.5">
+                          <ul className="grid gap-2.5 sm:grid-cols-2">
                             {filteredMovies.map((m) => (
                               <li key={m.film_number}>
                                 <SortableMovieCard
