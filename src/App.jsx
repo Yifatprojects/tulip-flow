@@ -2038,7 +2038,16 @@ export default function App() {
                   /* all — media first, then non-media, then unknown */
                   [...mediaGroups, ...nonMediaGroups, ...unknownGroups]
 
-                // Totals scoped to visible groups only
+                // Unmapped actuals: non-print expenses whose media_budget_code has no budget row
+                const unmappedActuals = (actualExpensesRows ?? []).filter(r => {
+                  if (isPrintCode(r.priority_code)) return false
+                  const code = r.media_budget_code?.trim() || '__none__'
+                  return !groups.has(code)
+                })
+                const unmappedTotal = unmappedActuals.reduce((s, r) => s + Number(r.actual_amount), 0)
+                const showUnmapped  = unmappedTotal > 0 && budgetFilter === 'all'
+
+                // Totals scoped to visible groups only (+ unmapped when showing all)
                 const calcTotals = (entries) => {
                   const planned = entries.reduce((s, [, { rows }]) => s + rows.reduce((a, r) => a + r.budget, 0), 0)
                   const actual  = entries.reduce((s, [key]) => s + (actualByCode[key] ?? 0), 0)
@@ -2047,7 +2056,12 @@ export default function App() {
 
                 const mediaTotals    = calcTotals(mediaGroups)
                 const nonMediaTotals = calcTotals(nonMediaGroups)
-                const visibleTotals  = calcTotals(visibleGroups)
+                const baseVisibleTotals = calcTotals(visibleGroups)
+                const visibleTotals  = {
+                  planned:  baseVisibleTotals.planned,
+                  actual:   baseVisibleTotals.actual  + (showUnmapped ? unmappedTotal : 0),
+                  variance: baseVisibleTotals.variance - (showUnmapped ? unmappedTotal : 0),
+                }
 
                 const toggleGroup = (key) => setExpandedGroups(prev => {
                   const next = new Set(prev)
@@ -2273,6 +2287,67 @@ export default function App() {
                         ) : (
                           visibleGroups.map(renderGroup)
                         )}
+
+                        {/* ── Unmapped / uncategorized actuals ── */}
+                        {showUnmapped && (() => {
+                          const isOpen = expandedGroups.has('__unmapped__')
+                          return (
+                            <>
+                              <SectionDivider label="⚠ Uncategorized Expenses" color="#B45309" bg="#FFFBEB" />
+                              {/* Parent summary row */}
+                              <tr
+                                className="cursor-pointer border-b border-[rgba(180,83,9,0.15)] bg-amber-50 hover:bg-amber-100/60"
+                                onClick={() => toggleGroup('__unmapped__')}
+                              >
+                                <td className="px-4 py-3 text-sm font-bold text-amber-800">
+                                  <span className="mr-2 text-[10px] text-amber-500">{isOpen ? '▾' : '▸'}</span>
+                                  Uncategorized Expenses
+                                </td>
+                                <td className="px-4 py-3 text-right text-xs text-amber-600">—</td>
+                                <td className="px-4 py-3 text-right text-xs text-amber-600">—</td>
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-amber-700">
+                                  {formatCurrency(unmappedTotal)}
+                                </td>
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-red-500">
+                                  {formatCurrency(-unmappedTotal)}
+                                </td>
+                              </tr>
+                              {/* Individual unmapped rows */}
+                              {isOpen && unmappedActuals.map((r, i) => (
+                                <tr key={i} className="border-b border-amber-100 bg-amber-50/40">
+                                  <td className="py-2 pl-10 pr-4 text-[12px] text-amber-900" dir="auto">
+                                    {r.expense_description || r.priority_code || '—'}
+                                    {budgetEditMode && (
+                                      <button
+                                        type="button"
+                                        title="Create a budget line for this expense"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          const code = r.media_budget_code?.trim() || ''
+                                          addDraftRow(code)
+                                          setExpandedGroups(prev => new Set([...prev, code || '__none__']))
+                                        }}
+                                        className="ml-2 rounded bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 hover:bg-amber-300"
+                                      >
+                                        + Add to Budget
+                                      </button>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-[11px] text-amber-600">
+                                    {r.media_budget_code || <span className="italic text-amber-400">no code</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-[11px] text-amber-600">
+                                    {r.month_period ? r.month_period.slice(0, 7) : '—'}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12px] tabular-nums text-amber-800">
+                                    {formatCurrency(Number(r.actual_amount))}
+                                  </td>
+                                  <td className="px-4 py-2" />
+                                </tr>
+                              ))}
+                            </>
+                          )
+                        })()}
                       </tbody>
                       <tfoot>
                         {/* Sub-totals row — only shown when filter is 'all' and both types exist */}
