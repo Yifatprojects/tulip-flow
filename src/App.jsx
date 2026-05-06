@@ -919,6 +919,7 @@ export default function App() {
   const [newMovieCode, setNewMovieCode] = useState('')
   const [newMovieProfitCenter, setNewMovieProfitCenter] = useState('')
   const [newMovieStudio, setNewMovieStudio] = useState(DEFAULT_STUDIO_OPTIONS[0])
+  const [newMovieReleaseDate, setNewMovieReleaseDate] = useState('')
   const [addMovieBusy, setAddMovieBusy] = useState(false)
   const [addMovieError, setAddMovieError] = useState(null)
 
@@ -1303,6 +1304,7 @@ export default function App() {
         title_he:      he || null,
         studio,
         profit_center: profitCenter,
+        release_date:  newMovieReleaseDate || null,
       }
       const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
@@ -1313,6 +1315,7 @@ export default function App() {
       setNewMovieCode('')
       setNewMovieProfitCenter('')
       setNewMovieStudio(DEFAULT_STUDIO_OPTIONS[0])
+      setNewMovieReleaseDate('')
     } catch (err) {
       setAddMovieError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -2585,6 +2588,21 @@ export default function App() {
                     <option key={opt} value={opt}>{opt}</option>
                   ))}
                 </select>
+              </div>
+
+              {/* Release Date */}
+              <div>
+                <label htmlFor="movie-release-date" className="mb-0.5 block text-xs font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
+                  Release Date
+                </label>
+                <p className="mb-1.5 text-[10px] text-[#8A7BAB]">תאריך יציאה לאקרנים</p>
+                <input
+                  id="movie-release-date"
+                  type="date"
+                  value={newMovieReleaseDate}
+                  onChange={(e) => setNewMovieReleaseDate(e.target.value)}
+                  className="w-full rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2.5 text-sm text-[#4A148C] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/25"
+                />
               </div>
 
               {addMovieError && (
