@@ -2479,10 +2479,12 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-movie-title"
-            className="relative z-10 w-full max-w-md rounded-2xl border border-[rgba(74,20,140,0.2)] bg-white p-6 shadow-[0_28px_60px_rgba(74,20,140,0.22)]"
+            className="relative z-10 flex max-h-[90vh] w-full max-w-md flex-col rounded-2xl border border-[rgba(74,20,140,0.2)] bg-white shadow-[0_28px_60px_rgba(74,20,140,0.22)]"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="mb-5 flex items-start justify-between gap-3">
+            {/* Fixed header */}
+            <div className="shrink-0 border-b border-[rgba(74,20,140,0.1)] px-6 pb-4 pt-6">
+            <div className="flex items-start justify-between gap-3">
               <h2
                 id="add-movie-title"
                 className="font-['Montserrat',sans-serif] text-lg font-bold text-[#4B4594]"
@@ -2499,8 +2501,10 @@ export default function App() {
                 <X className="h-5 w-5" aria-hidden />
               </button>
             </div>
+            </div>{/* end fixed header */}
 
-            <form onSubmit={handleAddMovieSubmit} className="space-y-3.5">
+            {/* Scrollable body */}
+            <form onSubmit={handleAddMovieSubmit} className="overflow-y-auto px-6 py-5 space-y-3.5">
 
               {/* Hebrew title */}
               <div>
