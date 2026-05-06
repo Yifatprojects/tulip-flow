@@ -2233,6 +2233,9 @@ export default function App() {
                         <div className="flex items-center gap-3 text-[11px] font-medium text-[#6A5B88]">
                           <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-5 rounded-sm bg-[#EFF6FF] border border-[#BFDBFE]" /> Media</span>
                           <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-5 rounded-sm bg-[#FFFBEB] border border-[#FDE68A]" /> Non-media</span>
+                          {showUnmapped && (
+                            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-5 rounded-sm bg-[#FFF1F3] border border-[#FECDD3]" /> Unrecognized</span>
+                          )}
                         </div>
                       )}
 
@@ -2293,29 +2296,29 @@ export default function App() {
                           const isOpen = expandedGroups.has('__unmapped__')
                           return (
                             <>
-                              <SectionDivider label="⚠ Uncategorized Expenses" color="#B45309" bg="#FFFBEB" />
+                              <SectionDivider label="⚠ Unrecognized Expenses" color="#BE123C" bg="#FFF1F3" />
                               {/* Parent summary row */}
                               <tr
-                                className="cursor-pointer border-b border-[rgba(180,83,9,0.15)] bg-amber-50 hover:bg-amber-100/60"
+                                className="cursor-pointer border-b border-rose-200 bg-[#FFF1F3] hover:bg-rose-100/70"
                                 onClick={() => toggleGroup('__unmapped__')}
                               >
-                                <td className="px-4 py-3 text-sm font-bold text-amber-800">
-                                  <span className="mr-2 text-[10px] text-amber-500">{isOpen ? '▾' : '▸'}</span>
-                                  Uncategorized Expenses
+                                <td className="px-4 py-3 text-sm font-bold text-rose-800">
+                                  <span className="mr-2 text-[10px] text-rose-400">{isOpen ? '▾' : '▸'}</span>
+                                  Unrecognized Expenses
                                 </td>
-                                <td className="px-4 py-3 text-right text-xs text-amber-600">—</td>
-                                <td className="px-4 py-3 text-right text-xs text-amber-600">—</td>
-                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-amber-700">
+                                <td className="px-4 py-3 text-right text-xs text-rose-400">—</td>
+                                <td className="px-4 py-3 text-right text-xs text-rose-400">—</td>
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-rose-700">
                                   {formatCurrency(unmappedTotal)}
                                 </td>
-                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-red-500">
+                                <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-rose-600">
                                   {formatCurrency(-unmappedTotal)}
                                 </td>
                               </tr>
                               {/* Individual unmapped rows */}
                               {isOpen && unmappedActuals.map((r, i) => (
-                                <tr key={i} className="border-b border-amber-100 bg-amber-50/40">
-                                  <td className="py-2 pl-10 pr-4 text-[12px] text-amber-900" dir="auto">
+                                <tr key={i} className="border-b border-rose-100 bg-[#FFF8F9]">
+                                  <td className="py-2 pl-10 pr-4 text-[12px] text-rose-900" dir="auto">
                                     {r.expense_description || r.priority_code || '—'}
                                     {budgetEditMode && (
                                       <button
@@ -2327,19 +2330,19 @@ export default function App() {
                                           addDraftRow(code)
                                           setExpandedGroups(prev => new Set([...prev, code || '__none__']))
                                         }}
-                                        className="ml-2 rounded bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold text-amber-800 hover:bg-amber-300"
+                                        className="ml-2 rounded bg-rose-200 px-1.5 py-0.5 text-[9px] font-bold text-rose-800 hover:bg-rose-300"
                                       >
                                         + Add to Budget
                                       </button>
                                     )}
                                   </td>
-                                  <td className="px-4 py-2 text-right text-[11px] text-amber-600">
-                                    {r.media_budget_code || <span className="italic text-amber-400">no code</span>}
+                                  <td className="px-4 py-2 text-right text-[11px] text-rose-500">
+                                    {r.media_budget_code || <span className="italic text-rose-300">no code</span>}
                                   </td>
-                                  <td className="px-4 py-2 text-right text-[11px] text-amber-600">
+                                  <td className="px-4 py-2 text-right text-[11px] text-rose-500">
                                     {r.month_period ? r.month_period.slice(0, 7) : '—'}
                                   </td>
-                                  <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12px] tabular-nums text-amber-800">
+                                  <td className="px-4 py-2 text-right font-['Montserrat',sans-serif] text-[12px] tabular-nums text-rose-800">
                                     {formatCurrency(Number(r.actual_amount))}
                                   </td>
                                   <td className="px-4 py-2" />
