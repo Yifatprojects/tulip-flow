@@ -1,7 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
   DollarSign, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
@@ -281,11 +278,6 @@ async function fetchIncomeRows(filmNumber) {
 }
 
 function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: movie.film_number,
-  })
-  const style = { transform: CSS.Transform.toString(transform), transition }
-
   const spentRatio   = totalBudget > 0 ? Math.min((actualSpent / totalBudget) * 100, 100) : actualSpent > 0 ? 100 : 0
   const isOverBudget = totalBudget > 0 && actualSpent > totalBudget
   const isAt90       = !isOverBudget && spentRatio >= 90
@@ -293,17 +285,13 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
 
   return (
     <button
-      ref={setNodeRef}
-      style={style}
       type="button"
       onClick={onSelect}
-      {...attributes}
-      {...listeners}
       className={`group relative w-full rounded-xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(75,69,148,0.5)] ${
         isSelected
           ? 'border-[rgba(249,178,51,0.75)] bg-white shadow-[0_0_0_1px_rgba(249,178,51,0.45),0_12px_28px_rgba(249,178,51,0.24)]'
           : 'border-[rgba(123,82,171,0.24)] bg-white hover:border-[rgba(249,178,51,0.6)] hover:bg-[#FFFDF6] hover:shadow-[0_10px_22px_rgba(123,82,171,0.14)]'
-      } ${isDragging ? 'opacity-60' : ''}`}
+      }`}
     >
       {/* Title row */}
       <div className="mb-2 flex items-start justify-between gap-2">
@@ -923,7 +911,6 @@ export default function App() {
   const [addMovieBusy, setAddMovieBusy] = useState(false)
   const [addMovieError, setAddMovieError] = useState(null)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const refreshMovies = useCallback(async () => {
     try {
@@ -1127,18 +1114,6 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [searchTerm])
 
-  function handleDragEnd(event) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-
-    setMovies((current) => {
-      if (!Array.isArray(current)) return current
-      const oldIndex = current.findIndex((m) => m.film_number === active.id)
-      const newIndex = current.findIndex((m) => m.film_number === over.id)
-      if (oldIndex === -1 || newIndex === -1) return current
-      return arrayMove(current, oldIndex, newIndex)
-    })
-  }
 
   const brandBorder = 'border border-[rgba(74,20,140,0.2)]'
 
@@ -1636,35 +1611,25 @@ export default function App() {
                     </p>
                   ) : (
                     <div className="movie-list-scroll lg:h-[calc(100%-6.5rem)] lg:overflow-y-auto lg:pr-1">
-                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                        <SortableContext
-                          items={filteredMovies.map((m) => m.film_number)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <ul className="grid gap-2.5 sm:grid-cols-2">
-                            {filteredMovies.map((m) => (
-                              <li key={m.film_number}>
-                                <SortableMovieCard
-                                  movie={m}
-                                  totalBudget={movieBudgetTotals[m.film_number] ?? 0}
-                                  actualSpent={movieMarketingTotals[m.film_number] ?? 0}
-                                  latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
-                                  latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
-                                  latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
-                                  isSelected={selectedMovie?.film_number === m.film_number}
-                                  onSelect={() => setSelectedMovie(selectedMovie?.film_number === m.film_number ? null : m)}
-                                />
-                              </li>
-                            ))}
-                          </ul>
-                        </SortableContext>
-                      </DndContext>
+                      <ul className="grid gap-2.5 sm:grid-cols-2">
+                        {filteredMovies.map((m) => (
+                          <li key={m.film_number}>
+                            <SortableMovieCard
+                              movie={m}
+                              totalBudget={movieBudgetTotals[m.film_number] ?? 0}
+                              actualSpent={movieMarketingTotals[m.film_number] ?? 0}
+                              latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
+                              latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
+                              latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
+                              isSelected={selectedMovie?.film_number === m.film_number}
+                              onSelect={() => setSelectedMovie(selectedMovie?.film_number === m.film_number ? null : m)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
-                  <p className="mt-3 text-[11px] text-[#8A7BAB]">
-                    Drag cards to rearrange. Order stays in local state for this session.
-                  </p>
                 </div>
               </section>
 
