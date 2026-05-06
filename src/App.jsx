@@ -1671,18 +1671,22 @@ export default function App() {
 
       {/* ── Full-screen Budget Modal ──────────────────────────────────────── */}
       {selectedMovie && (() => {
-        const film        = selectedMovie
-        const filmBudget  = movieBudgetTotals[film.film_number] ?? 0
-        const filmSpent   = movieMarketingTotals[film.film_number] ?? 0
-        const filmIncome  = movieIncomeTotals[film.film_number] ?? 0
-        const filmBalance = filmBudget - filmSpent
+        const film       = selectedMovie
+        const filmBudget = movieBudgetTotals[film.film_number] ?? 0
+        const filmIncome = movieIncomeTotals[film.film_number] ?? 0
 
         // Actual totals by media_budget_code (marketing only — no print)
+        // filmSpent is derived from this so it always matches the budget table Grand Total
         const actualByCode = {}
         for (const r of (actualExpensesRows ?? []).filter(r => !isPrintCode(r.priority_code))) {
           const code = r.media_budget_code?.trim() || '__none__'
           actualByCode[code] = (actualByCode[code] ?? 0) + (Number(r.actual_amount) || 0)
         }
+
+        // Total Spent = sum of all actuals that appear in the budget table (no orphans)
+        // This ensures the KPI card always matches the Grand Total row in the table below
+        const filmSpent   = Object.values(actualByCode).reduce((s, v) => s + v, 0)
+        const filmBalance = filmBudget - filmSpent
 
         // Print expense rows from actuals
         const printRows = (actualExpensesRows ?? []).filter(r => isPrintCode(r.priority_code))
