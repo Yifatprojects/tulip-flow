@@ -1963,7 +1963,7 @@ export default function App() {
             </div>
 
             {/* ── Scrollable body ── */}
-            <div className="flex-1 overflow-y-auto px-6 pb-20 pt-5">
+            <div className="flex flex-1 flex-col overflow-hidden px-6 pt-5">
 
               {budgetLoading && (
                 <div className="flex items-center justify-center py-20">
@@ -2254,7 +2254,7 @@ export default function App() {
                   )}
 
                   {/* ── Filter tabs + Edit button bar ── */}
-                  <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="mb-4 flex shrink-0 items-center justify-between gap-4 flex-wrap">
                     {/* Filter pills — hidden in edit mode */}
                     {!budgetEditMode && (
                       <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-1 shadow-sm">
@@ -2323,7 +2323,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md [overflow:clip]">
+                  <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md" style={{scrollbarWidth:'thin',scrollbarColor:'rgba(74,20,140,0.2) transparent'}}>
                     <table className="w-full border-collapse text-sm">
                       <thead className="sticky top-0 z-20">
                         <tr className="bg-[#2D1B69]">
@@ -2450,70 +2450,70 @@ export default function App() {
                         </tr>
                       </tfoot>
                     </table>
-                  </div>
+                  </div>{/* end scrollable table wrapper */}
+
+                  {/* ── Print Expenses section ── */}
+                  {printRows.length > 0 && (
+                    <div className="mt-6 shrink-0">
+                      <div className="mb-3 flex items-center gap-2">
+                        <div className="h-2.5 w-2.5 rounded-full bg-[#7B52AB]" />
+                        <h2 className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#7B52AB]">
+                          Print &amp; Technical Expenses — {formatCurrency(totalPrint)} (excluded from budget)
+                        </h2>
+                      </div>
+                      <div className="overflow-hidden rounded-2xl border border-[rgba(123,82,171,0.2)] bg-white shadow-sm">
+                        <table className="w-full border-collapse text-sm">
+                          <thead>
+                            <tr>
+                              {['Priority Code', 'Description', 'Month', 'Amount'].map((h, i) => (
+                                <th key={h} className={`border-b-2 border-[rgba(123,82,171,0.18)] bg-[#F4F0FF] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#7B52AB] ${i > 1 ? 'text-right' : 'text-left'}`}>
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {printRows.map((r, i) => (
+                              <tr key={i} className="border-t border-[rgba(123,82,171,0.07)] hover:bg-[#FAF7FF]">
+                                <td className="px-4 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs font-semibold text-[#7B52AB]">{r.priority_code}</td>
+                                <td className="px-4 py-2.5 text-xs text-[#8A7BAB]">{r.expense_description || '—'}</td>
+                                <td className="px-4 py-2.5 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#8A7BAB]">{r.month_period?.slice(0,7) ?? '—'}</td>
+                                <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#7B52AB]">{formatCurrency(r.actual_amount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-[rgba(123,82,171,0.2)] bg-[#F4F0FF]">
+                              <td colSpan={3} className="px-4 py-2.5 text-xs font-bold text-[#7B52AB]">Total Print</td>
+                              <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#7B52AB]">
+                                {formatCurrency(totalPrint)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Trend chart ── */}
+                  {(actualExpensesRows.length > 0 || incomeRows.length > 0) && (
+                    <div className="mt-6 shrink-0 pb-6">
+                      <div className="mb-3 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-[#4B4594]" aria-hidden />
+                        <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4A148C]">Accumulated Trend</p>
+                      </div>
+                      <div className="rounded-2xl border border-[rgba(74,20,140,0.12)] bg-white p-6">
+                        <TrendChart filmNumber={film.film_number} />
+                        <div className="mt-3 flex items-center justify-center gap-6">
+                          <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#C0392B]" /> Accum. Expenses</span>
+                          <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#0EA5A0]" /> Accum. Revenue</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   </>
                 )
               })()}
-
-              {/* ── Print Expenses section ── */}
-              {printRows.length > 0 && (
-                <div className="mt-8">
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="h-2.5 w-2.5 rounded-full bg-[#7B52AB]" />
-                    <h2 className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-[#7B52AB]">
-                      Print &amp; Technical Expenses — {formatCurrency(totalPrint)} (excluded from budget)
-                    </h2>
-                  </div>
-                  <div className="overflow-hidden rounded-2xl border border-[rgba(123,82,171,0.2)] bg-white shadow-sm">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr>
-                          {['Priority Code', 'Description', 'Month', 'Amount'].map((h, i) => (
-                            <th key={h} className={`sticky top-0 z-10 border-b-2 border-[rgba(123,82,171,0.18)] bg-[#F4F0FF] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#7B52AB] ${i > 1 ? 'text-right' : 'text-left'}`}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {printRows.map((r, i) => (
-                          <tr key={i} className="border-t border-[rgba(123,82,171,0.07)] hover:bg-[#FAF7FF]">
-                            <td className="px-4 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs font-semibold text-[#7B52AB]">{r.priority_code}</td>
-                            <td className="px-4 py-2.5 text-xs text-[#8A7BAB]">{r.expense_description || '—'}</td>
-                            <td className="px-4 py-2.5 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#8A7BAB]">{r.month_period?.slice(0,7) ?? '—'}</td>
-                            <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-semibold tabular-nums text-[#7B52AB]">{formatCurrency(r.actual_amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="border-t-2 border-[rgba(123,82,171,0.2)] bg-[#F4F0FF]">
-                          <td colSpan={3} className="px-4 py-2.5 text-xs font-bold text-[#7B52AB]">Total Print</td>
-                          <td className="px-4 py-2.5 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums text-[#7B52AB]">
-                            {formatCurrency(totalPrint)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* ── Trend chart ── */}
-              {(actualExpensesRows.length > 0 || incomeRows.length > 0) && (
-                <div className="mt-8">
-                  <div className="mb-3 flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-[#4B4594]" aria-hidden />
-                    <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#4A148C]">Accumulated Trend</p>
-                  </div>
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.12)] bg-white p-6">
-                    <TrendChart filmNumber={film.film_number} />
-                    <div className="mt-3 flex items-center justify-center gap-6">
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#C0392B]" /> Accum. Expenses</span>
-                      <span className="flex items-center gap-1.5 text-[11px] text-[#8A7BAB]"><span className="inline-block h-2 w-5 rounded-full bg-[#0EA5A0]" /> Accum. Revenue</span>
-                    </div>
-                  </div>
-                </div>
-              )}
 
             </div>
           </div>
