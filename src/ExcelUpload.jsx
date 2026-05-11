@@ -904,16 +904,22 @@ async function previewJournal(file, month, year, studio) {
   const [expRes, rentRes, filmRes] = await Promise.all([
     supabase.from('expenses').select('priority_code').in('priority_code', uniqueCodes),
     supabase.from('rentals').select('priority_code').in('priority_code', uniqueCodes),
-    supabase.from('films').select('film_number, profit_center').in('profit_center', uniqueProfitCenters),
+    // Fetch films matching either profit_center OR profit_center_2
+    supabase.from('films').select('film_number, profit_center, profit_center_2').or(
+      uniqueProfitCenters.map((pc) => `profit_center.eq.${pc},profit_center_2.eq.${pc}`).join(',')
+    ),
   ])
 
   const expCodeSet  = new Set((expRes.data  ?? []).map((r) => r.priority_code))
   const rentCodeSet = new Set((rentRes.data ?? []).map((r) => r.priority_code))
 
-  // Map profit_center → film_number (stringify both sides for safe comparison)
-  const pcToFilm = new Map(
-    (filmRes.data ?? []).map((r) => [String(r.profit_center), r.film_number]),
-  )
+  // Map profit_center (or profit_center_2) → film_number
+  // A film matches if either PC field equals the value from column E
+  const pcToFilm = new Map()
+  for (const r of (filmRes.data ?? [])) {
+    if (r.profit_center)   pcToFilm.set(String(r.profit_center),   r.film_number)
+    if (r.profit_center_2) pcToFilm.set(String(r.profit_center_2), r.film_number)
+  }
 
   // ── Route rows ────────────────────────────────────────────────────────────
   const expenseRows  = []
