@@ -2323,7 +2323,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md [overflow:clip]">
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] shadow-md overflow-hidden">
+                    <div className="overflow-y-auto bg-white" style={{maxHeight:'calc(100vh - 340px)',scrollbarWidth:'thin',scrollbarColor:'rgba(74,20,140,0.25) transparent'}}>
                     <table className="w-full border-collapse text-sm">
                       <thead className="sticky top-0 z-20">
                         <tr className="bg-[#2D1B69]">
@@ -2450,7 +2451,8 @@ export default function App() {
                         </tr>
                       </tfoot>
                     </table>
-                  </div>
+                    </div>{/* end inner scroll div */}
+                  </div>{/* end outer visual div */}
                   </>
                 )
               })()}
