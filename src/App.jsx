@@ -2234,10 +2234,10 @@ export default function App() {
 
                   <div className="overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
                     <table className="w-full border-collapse text-sm">
-                      <thead>
+                      <thead className="sticky top-0 z-20">
                         <tr className="bg-[#2D1B69]">
                           {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right]) => (
-                            <th key={label} className={`px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'}`}>
+                            <th key={label} className={`bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'}`}>
                               {label}
                             </th>
                           ))}
