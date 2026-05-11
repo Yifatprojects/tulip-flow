@@ -319,6 +319,11 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
                 PC {movie.profit_center}
               </span>
             )}
+            {movie.profit_center_2 && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
+                PC2 {movie.profit_center_2}
+              </span>
+            )}
             {formatReleaseDate(movie.release_date) && (
               <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[9px] font-semibold text-[#E65100]">
                 <Calendar className="h-2.5 w-2.5" aria-hidden />
@@ -906,6 +911,7 @@ export default function App() {
   const [newMovieEnglish, setNewMovieEnglish] = useState('')
   const [newMovieCode, setNewMovieCode] = useState('')
   const [newMovieProfitCenter, setNewMovieProfitCenter] = useState('')
+  const [newMovieProfitCenter2, setNewMovieProfitCenter2] = useState('')
   const [newMovieStudio, setNewMovieStudio] = useState(DEFAULT_STUDIO_OPTIONS[0])
   const [newMovieReleaseDate, setNewMovieReleaseDate] = useState('')
   const [addMovieBusy, setAddMovieBusy] = useState(false)
@@ -1100,8 +1106,8 @@ export default function App() {
       try {
         const { data } = await supabase
           .from('films')
-          .select('film_number, title_en, title_he, studio, profit_center, release_date')
-          .or(`title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,film_number.ilike.%${needle}%,studio.ilike.%${needle}%,profit_center.ilike.%${needle}%`)
+          .select('film_number, title_en, title_he, studio, profit_center, profit_center_2, release_date')
+          .or(`title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,film_number.ilike.%${needle}%,studio.ilike.%${needle}%,profit_center.ilike.%${needle}%,profit_center_2.ilike.%${needle}%`)
           .order('title_en')
           .limit(50)
         setSearchResults(data ?? [])
@@ -1278,8 +1284,9 @@ export default function App() {
         title_en:      en || null,
         title_he:      he || null,
         studio,
-        profit_center: profitCenter,
-        release_date:  newMovieReleaseDate || null,
+        profit_center:   profitCenter,
+        profit_center_2: newMovieProfitCenter2.trim() || null,
+        release_date:    newMovieReleaseDate || null,
       }
       const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
@@ -1289,6 +1296,7 @@ export default function App() {
       setNewMovieEnglish('')
       setNewMovieCode('')
       setNewMovieProfitCenter('')
+      setNewMovieProfitCenter2('')
       setNewMovieStudio(DEFAULT_STUDIO_OPTIONS[0])
       setNewMovieReleaseDate('')
     } catch (err) {
@@ -1814,6 +1822,7 @@ export default function App() {
                 <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6A5B88]">
                   {movieStudioAndCodeLabel(film)}
                   {film.profit_center && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
+                  {film.profit_center_2 && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC2 {film.profit_center_2}</span>}
                   {formatReleaseDate(film.release_date) && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[10px] font-semibold text-[#E65100]">
                       <Calendar className="h-2.5 w-2.5" aria-hidden />
@@ -2538,6 +2547,23 @@ export default function App() {
                   autoComplete="off"
                   className="w-full rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-sm text-[#4A148C] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/25"
                   placeholder="e.g. 30015"
+                />
+              </div>
+
+              {/* Profit Center 2 */}
+              <div>
+                <label htmlFor="movie-profit-center-2" className="mb-0.5 block text-xs font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
+                  Profit Center 2 <span className="normal-case font-normal text-[#9A8AB8]">(optional)</span>
+                </label>
+                <p className="mb-1.5 text-[10px] text-[#8A7BAB]">מרכז רווח נוסף</p>
+                <input
+                  id="movie-profit-center-2"
+                  type="text"
+                  value={newMovieProfitCenter2}
+                  onChange={(e) => setNewMovieProfitCenter2(e.target.value)}
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-2.5 font-['JetBrains_Mono',ui-monospace,monospace] text-sm text-[#4A148C] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/25"
+                  placeholder="e.g. 30016"
                 />
               </div>
 

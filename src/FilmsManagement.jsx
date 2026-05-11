@@ -47,7 +47,7 @@ export function FilmsManagementModal({ onClose }) {
     setLoading(true)
     const { data } = await supabase
       .from('films')
-      .select('film_number, title_en, title_he, studio, profit_center, release_date')
+      .select('film_number, title_en, title_he, studio, profit_center, profit_center_2, release_date')
       .order('film_number', { ascending: false })
       .limit(25)
     setFilms(data ?? [])
@@ -63,9 +63,9 @@ export function FilmsManagementModal({ onClose }) {
       setLoading(true)
       const { data } = await supabase
         .from('films')
-        .select('film_number, title_en, title_he, studio, profit_center, release_date')
+        .select('film_number, title_en, title_he, studio, profit_center, profit_center_2, release_date')
         .or(
-          `title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,studio.ilike.%${needle}%,film_number.ilike.%${needle}%,profit_center.ilike.%${needle}%`,
+          `title_en.ilike.%${needle}%,title_he.ilike.%${needle}%,studio.ilike.%${needle}%,film_number.ilike.%${needle}%,profit_center.ilike.%${needle}%,profit_center_2.ilike.%${needle}%`,
         )
         .limit(50)
       setFilms(data ?? [])
@@ -82,8 +82,9 @@ export function FilmsManagementModal({ onClose }) {
       title_en:     film.title_en    ?? '',
       title_he:     film.title_he    ?? '',
       studio:       film.studio      ?? '',
-      profit_center: film.profit_center ?? '',
-      release_date: film.release_date ? film.release_date.slice(0, 10) : '',
+      profit_center:   film.profit_center   ?? '',
+      profit_center_2: film.profit_center_2 ?? '',
+      release_date:    film.release_date ? film.release_date.slice(0, 10) : '',
     })
     setSaveError(null)
   }
@@ -106,8 +107,9 @@ export function FilmsManagementModal({ onClose }) {
       title_en:      draft.title_en     || null,
       title_he:      draft.title_he     || null,
       studio:        draft.studio       || null,
-      profit_center: draft.profit_center || null,
-      release_date:  draft.release_date  || null,
+      profit_center:   draft.profit_center   || null,
+      profit_center_2: draft.profit_center_2 || null,
+      release_date:    draft.release_date    || null,
     }
     const newFn = draft.film_number.trim()
     const oldFn = originalFilm.film_number
@@ -197,7 +199,7 @@ export function FilmsManagementModal({ onClose }) {
             <input
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by title (English or Hebrew), studio, film number, or profit center…"
+              placeholder="Search by title (English or Hebrew), studio, film number, profit center, or profit center 2…"
               className="w-full bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
             />
             {searchTerm && (
@@ -233,7 +235,7 @@ export function FilmsManagementModal({ onClose }) {
             <table className="w-full min-w-[700px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-[rgba(74,20,140,0.1)]">
-                  {['Film Number', 'English Title', 'Hebrew Title', 'Studio', 'Profit Center', 'Release Date', ''].map((h) => (
+                  {['Film Number', 'English Title', 'Hebrew Title', 'Studio', 'Profit Center', 'Profit Center 2', 'Release Date', ''].map((h) => (
                     <th key={h} className="pb-2 pr-3 text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">
                       {h}
                     </th>
@@ -276,6 +278,15 @@ export function FilmsManagementModal({ onClose }) {
                               value={draft.profit_center}
                               onChange={(v) => patchDraft('profit_center', v)}
                               placeholder="e.g. 30015"
+                              className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
+                            />
+                          </Cell>
+                          {/* Profit Center 2 */}
+                          <Cell>
+                            <Input
+                              value={draft.profit_center_2}
+                              onChange={(v) => patchDraft('profit_center_2', v)}
+                              placeholder="e.g. 30016"
                               className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
                             />
                           </Cell>
@@ -327,6 +338,11 @@ export function FilmsManagementModal({ onClose }) {
                           <Cell>
                             <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#7B52AB]">
                               {film.profit_center || <span className="text-[#C0B8D8]">—</span>}
+                            </span>
+                          </Cell>
+                          <Cell>
+                            <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#7B52AB]">
+                              {film.profit_center_2 || <span className="text-[#C0B8D8]">—</span>}
                             </span>
                           </Cell>
                           <Cell>{film.release_date ? film.release_date.slice(0, 10) : <span className="text-[#C0B8D8]">—</span>}</Cell>
