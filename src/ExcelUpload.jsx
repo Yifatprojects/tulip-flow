@@ -1857,7 +1857,7 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
               ) : (
                 <>
                   <Upload className="h-4 w-4" aria-hidden />
-                  Import {config.label}
+                  Import
                 </>
               )}
             </button>
