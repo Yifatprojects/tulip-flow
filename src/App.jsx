@@ -2232,7 +2232,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md [overflow:clip]">
                     <table className="w-full border-collapse text-sm">
                       <thead className="sticky top-0 z-20">
                         <tr className="bg-[#2D1B69]">
