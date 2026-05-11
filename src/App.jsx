@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
-  DollarSign, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
+  DollarSign, Download, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
   Save, Search, Settings, TrendingUp, X,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
@@ -2155,6 +2156,90 @@ export default function App() {
                   </tr>
                 )
 
+                // ── Excel export ─────────────────────────────────────────────────────
+                const exportToExcel = () => {
+                  const filmTitle = movieTitleEnglish(film) || `film_${film.film_number}`
+                  const rows = []
+
+                  const addSection = (label, groups) => {
+                    if (groups.length === 0) return
+                    rows.push({ Category: label, 'Item Name': '', Vendor: '', 'Planned (₪)': '', 'Actual (₪)': '', 'Variance (₪)': '' })
+                    for (const [groupKey, { code, rows: budgetRows }] of groups) {
+                      const groupBudget  = budgetRows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
+                      const groupActual  = actualByCode[groupKey] ?? 0
+                      const groupVar     = groupBudget - groupActual
+                      // Summary row for the group
+                      rows.push({
+                        Category:       '',
+                        'Item Name':    code || 'No Code',
+                        Vendor:         '',
+                        'Planned (₪)':  groupBudget,
+                        'Actual (₪)':   groupActual || '',
+                        'Variance (₪)': groupActual > 0 ? groupVar : '',
+                      })
+                      // Child rows
+                      for (const r of budgetRows) {
+                        rows.push({
+                          Category:       '',
+                          'Item Name':    `  ${r.categoryName}`,
+                          Vendor:         r.vendorName || '',
+                          'Planned (₪)':  r.budget,
+                          'Actual (₪)':   '',
+                          'Variance (₪)': '',
+                        })
+                      }
+                    }
+                  }
+
+                  if (budgetFilter === 'all' && hasMediaFlag) {
+                    addSection('Media Spend', mediaGroups)
+                    addSection('Non-Media Spend', nonMediaGroups)
+                  } else {
+                    addSection('Budget', visibleGroups)
+                  }
+
+                  // Unrecognized section
+                  if (showUnmapped && unmappedActuals.length > 0) {
+                    rows.push({ Category: '⚠ Unrecognized Expenses', 'Item Name': '', Vendor: '', 'Planned (₪)': '', 'Actual (₪)': '', 'Variance (₪)': '' })
+                    for (const r of unmappedActuals) {
+                      rows.push({
+                        Category:       '',
+                        'Item Name':    r.expense_description || r.media_budget_code || '—',
+                        Vendor:         '',
+                        'Planned (₪)':  '',
+                        'Actual (₪)':   Number(r.actual_amount),
+                        'Variance (₪)': '',
+                      })
+                    }
+                  }
+
+                  // Grand total row
+                  rows.push({
+                    Category:       '',
+                    'Item Name':    'GRAND TOTAL',
+                    Vendor:         '',
+                    'Planned (₪)':  visibleTotals.planned,
+                    'Actual (₪)':   visibleTotals.actual,
+                    'Variance (₪)': visibleTotals.variance,
+                  })
+
+                  const ws = XLSX.utils.json_to_sheet(rows)
+
+                  // Column widths
+                  ws['!cols'] = [
+                    { wch: 22 },  // Category
+                    { wch: 36 },  // Item Name
+                    { wch: 22 },  // Vendor
+                    { wch: 16 },  // Planned
+                    { wch: 16 },  // Actual
+                    { wch: 16 },  // Variance
+                  ]
+
+                  const wb = XLSX.utils.book_new()
+                  XLSX.utils.book_append_sheet(wb, ws, 'Budget')
+                  XLSX.writeFile(wb, `${filmTitle}_budget.xlsx`)
+                }
+
                 return (
                   <>
                   {/* ── Save toast ── */}
@@ -2210,10 +2295,16 @@ export default function App() {
 
                       {/* Edit / Save / Cancel */}
                       {!budgetEditMode ? (
-                        <button type="button" onClick={startEdit}
-                          className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F4F0FF]">
-                          <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Budget
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={exportToExcel}
+                            className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#2FA36B] transition hover:bg-[#F0FBF5]">
+                            <Download className="h-3.5 w-3.5" aria-hidden /> Export
+                          </button>
+                          <button type="button" onClick={startEdit}
+                            className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F4F0FF]">
+                            <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Budget
+                          </button>
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={cancelEdit} disabled={budgetSaving}
