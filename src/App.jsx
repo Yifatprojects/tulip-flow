@@ -472,6 +472,8 @@ function DashboardSummaryRow({ studioOptions = [] }) {
   const [auditData, setAuditData]         = useState(null)
   const [auditLoading, setAuditLoading]   = useState(false)
   const [showAudit, setShowAudit]         = useState(false)
+  // Drill-down modal state
+  const [drilldown, setDrilldown]         = useState(null) // null | { type, rows, total, loading }
 
   useEffect(() => {
     let cancelled = false
@@ -647,11 +649,105 @@ function DashboardSummaryRow({ studioOptions = [] }) {
     }
   }
 
+  // ── Drill-down fetch ───────────────────────────────────────────────────────
+  async function fetchDrilldown(type) {
+    setDrilldown({ type, rows: [], total: 0, loading: true })
+
+    try {
+      const now          = new Date()
+      const ytdStart     = `${now.getFullYear()}-01-01`
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      const currentYear  = now.getFullYear()
+
+      const normId = (v) => String(v ?? '').trim()
+      const normSt = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
+
+      const pageAll = async (baseQ) => {
+        const PAGE = 1000; let rows = [], from = 0
+        while (true) {
+          const { data } = await baseQ.range(from, from + PAGE - 1)
+          rows = rows.concat(data ?? [])
+          if (!data || data.length < PAGE) break
+          from += PAGE
+        }
+        return rows
+      }
+
+      // 1. Fetch all films
+      const allFilms = await pageAll(
+        supabase.from('films').select('film_number, profit_center, title_en, title_he, studio')
+      )
+      const filmMap = {}
+      for (const f of allFilms) {
+        const entry = { title: f.title_en || f.title_he || f.film_number, studio: normSt(f.studio) }
+        if (normId(f.film_number))   filmMap[normId(f.film_number)]   = entry
+        if (normId(f.profit_center)) filmMap[normId(f.profit_center)] = entry
+      }
+
+      let rows = []
+
+      if (type === 'revenue') {
+        // rental_transactions: month_period, film_number, actual_amount
+        const raw = await pageAll(
+          supabase.from('rental_transactions')
+            .select('film_number, actual_amount, month_period')
+            .gte('month_period', ytdStart)
+            .lte('month_period', currentMonth)
+        )
+        rows = raw
+          .filter(r => {
+            if (!summaryStudio) return true
+            return normSt(filmMap[normId(r.film_number)]?.studio ?? '').toLowerCase() === normSt(summaryStudio).toLowerCase()
+          })
+          .map(r => ({
+            month:   r.month_period?.substring(0, 7) ?? '',
+            studio:  filmMap[normId(r.film_number)]?.studio  ?? '—',
+            movie:   filmMap[normId(r.film_number)]?.title   ?? r.film_number ?? '—',
+            amount:  Number(r.actual_amount) || 0,
+          }))
+      } else {
+        // actual_expenses: exclude is_print; join with expenses catalog for category
+        const [raw, catalog] = await Promise.all([
+          pageAll(
+            supabase.from('actual_expenses')
+              .select('film_number, actual_amount, month_period, priority_code, is_print')
+              .gte('month_period', ytdStart)
+              .lte('month_period', currentMonth)
+              .eq('is_print', false)
+          ),
+          pageAll(supabase.from('expenses').select('priority_code, expense_description')),
+        ])
+        const catMap = {}
+        for (const c of catalog) catMap[String(c.priority_code)] = c.expense_description
+        rows = raw
+          .filter(r => {
+            if (!summaryStudio) return true
+            return normSt(filmMap[normId(r.film_number)]?.studio ?? '').toLowerCase() === normSt(summaryStudio).toLowerCase()
+          })
+          .map(r => ({
+            month:    r.month_period?.substring(0, 7) ?? '',
+            studio:   filmMap[normId(r.film_number)]?.studio ?? '—',
+            movie:    filmMap[normId(r.film_number)]?.title  ?? r.film_number ?? '—',
+            category: catMap[String(r.priority_code)] ?? r.priority_code ?? '—',
+            amount:   Number(r.actual_amount) || 0,
+          }))
+      }
+
+      // Sort: most recent month first, then largest amount
+      rows.sort((a, b) => b.month.localeCompare(a.month) || b.amount - a.amount)
+      const total = rows.reduce((s, r) => s + r.amount, 0)
+      setDrilldown({ type, rows, total, loading: false, year: currentYear })
+    } catch (err) {
+      console.error('[Drilldown] error', err)
+      setDrilldown(null)
+    }
+  }
+
   const cards = [
-    { label: 'Current Month Revenue',  value: summary?.currIncome   ?? 0, color: '#0EA5A0', icon: TrendingUp },
-    { label: 'Current Month Expenses', value: summary?.currExpenses ?? 0, color: '#C0392B', icon: Receipt },
-    { label: 'Revenue YTD',            value: summary?.ytdIncome    ?? 0, color: '#2FA36B', icon: DollarSign },
-    { label: 'Expenses YTD',           value: summary?.ytdExpenses  ?? 0, color: '#7B52AB', icon: Film },
+    { label: 'Current Month Revenue',  value: summary?.currIncome   ?? 0, color: '#0EA5A0', icon: TrendingUp,  drillType: null },
+    { label: 'Current Month Expenses', value: summary?.currExpenses ?? 0, color: '#C0392B', icon: Receipt,     drillType: null },
+    { label: 'Revenue YTD',            value: summary?.ytdIncome    ?? 0, color: '#2FA36B', icon: DollarSign,  drillType: 'revenue' },
+    { label: 'Expenses YTD',           value: summary?.ytdExpenses  ?? 0, color: '#7B52AB', icon: Film,        drillType: 'expenses' },
   ]
 
   return (
@@ -711,23 +807,42 @@ function DashboardSummaryRow({ studioOptions = [] }) {
 
       {/* ── KPI cards ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {cards.map(({ label, value, color, icon: Icon }) => (
-          <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)]">
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
-                <Icon className="h-3.5 w-3.5" style={{ color }} aria-hidden />
+        {cards.map(({ label, value, color, icon: Icon, drillType }) => {
+          const isClickable = !!drillType
+          return (
+            <div
+              key={label}
+              onClick={isClickable ? () => fetchDrilldown(drillType) : undefined}
+              role={isClickable ? 'button' : undefined}
+              tabIndex={isClickable ? 0 : undefined}
+              onKeyDown={isClickable ? (e) => e.key === 'Enter' && fetchDrilldown(drillType) : undefined}
+              title={isClickable ? `Click to see breakdown` : undefined}
+              className={`rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)] transition
+                ${isClickable ? 'cursor-pointer hover:border-[rgba(74,20,140,0.28)] hover:shadow-[0_8px_28px_rgba(74,20,140,0.13)] hover:ring-1 hover:ring-[rgba(74,20,140,0.12)]' : ''}`}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
+                    <Icon className="h-3.5 w-3.5" style={{ color }} aria-hidden />
+                  </div>
+                  <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
+                </div>
+                {isClickable && (
+                  <span className="rounded-md border border-[rgba(74,20,140,0.14)] bg-[#F4F0FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#8A7BAB]">
+                    Drill ↗
+                  </span>
+                )}
               </div>
-              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
+              {loading ? (
+                <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
+              ) : (
+                <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
+                  {formatCurrency(value)}
+                </p>
+              )}
             </div>
-            {loading ? (
-              <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
-            ) : (
-              <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
-                {formatCurrency(value)}
-              </p>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* ── Data Audit Panel ── */}
@@ -855,6 +970,101 @@ function DashboardSummaryRow({ studioOptions = [] }) {
               )}
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* ── Drill-down modal ── */}
+      {drilldown && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-12"
+          style={{ background: 'rgba(45,27,105,0.40)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setDrilldown(null)}
+        >
+          <div
+            className="relative w-full max-w-3xl rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-[0_32px_72px_rgba(74,20,140,0.26)]"
+            style={{ maxHeight: '86vh', display: 'flex', flexDirection: 'column' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgba(74,20,140,0.1)] px-6 py-4">
+              <div>
+                <h2 className="font-['Montserrat',sans-serif] text-base font-extrabold text-[#2D1B69]">
+                  Calculation Breakdown — {drilldown.type === 'revenue' ? 'Revenue' : 'Expenses'} YTD {drilldown.year}
+                </h2>
+                <p className="mt-0.5 text-[11px] text-[#9A8AB8]">
+                  {summaryStudio ? `Studio: ${summaryStudio}` : 'All Studios'} · January 1 – present
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrilldown(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[#9A8AB8] transition hover:bg-[#F0EBFF] hover:text-[#4A148C]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {drilldown.loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="h-7 w-7 animate-spin text-[#4B4594]" />
+                </div>
+              ) : drilldown.rows.length === 0 ? (
+                <p className="py-12 text-center text-sm text-[#C0B8D8]">No data found for this period.</p>
+              ) : (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-[rgba(74,20,140,0.12)]">
+                      {drilldown.type === 'revenue'
+                        ? ['Month', 'Studio', 'Movie', 'Amount'].map(h => (
+                            <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
+                          ))
+                        : ['Month', 'Studio', 'Category', 'Movie', 'Amount'].map(h => (
+                            <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
+                          ))
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drilldown.rows.map((row, i) => (
+                      <tr key={i} className="border-b border-[rgba(74,20,140,0.05)] transition hover:bg-[#FAFAFE]">
+                        <td className="py-2 pl-0 pr-2 font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#6A5B88]">{row.month}</td>
+                        <td className="px-2 py-2">
+                          <span className="rounded-md bg-[#EDE8F8] px-1.5 py-0.5 text-[10px] font-bold text-[#4A148C]">{row.studio}</span>
+                        </td>
+                        {drilldown.type === 'expenses' && (
+                          <td className="max-w-[140px] truncate px-2 py-2 text-xs text-[#5B4B7A]" title={row.category}>{row.category}</td>
+                        )}
+                        <td className="max-w-[180px] truncate px-2 py-2 text-xs font-medium text-[#2D1B69]" title={row.movie}>{row.movie}</td>
+                        <td className={`py-2 pl-2 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
+                          {formatCurrency(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer total */}
+            {!drilldown.loading && drilldown.rows.length > 0 && (
+              <div className="flex shrink-0 items-center justify-between border-t border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] px-6 py-3">
+                <span className="text-[11px] font-semibold text-[#8A7BAB]">
+                  {drilldown.rows.length} row{drilldown.rows.length !== 1 ? 's' : ''}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-[#8A7BAB]">Total</span>
+                  <span
+                    className="font-['Montserrat',sans-serif] text-base font-extrabold tabular-nums"
+                    style={{ color: drilldown.type === 'revenue' ? '#2FA36B' : '#7B52AB' }}
+                  >
+                    {formatCurrency(drilldown.total)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
