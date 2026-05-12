@@ -1423,43 +1423,6 @@ export default function App() {
   return (
     <div className="min-h-dvh w-full">
 
-      {/* ── Cinematic cloud layer — sits behind all content ── */}
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-        {/* Cloud blob A — large, lower-left */}
-        <div style={{ position:'absolute', width:'560px', height:'220px', bottom:'18%', left:'-4%',
-          background:'rgba(255,255,255,0.62)', borderRadius:'50%', filter:'blur(52px)',
-          animation:'cloud-drift-a 44s ease-in-out infinite' }} />
-        {/* Cloud blob B — wide, lower-center */}
-        <div style={{ position:'absolute', width:'680px', height:'200px', bottom:'10%', left:'25%',
-          background:'rgba(255,255,255,0.55)', borderRadius:'50%', filter:'blur(60px)',
-          animation:'cloud-drift-b 38s ease-in-out infinite 6s' }} />
-        {/* Cloud blob C — smaller, right */}
-        <div style={{ position:'absolute', width:'400px', height:'170px', bottom:'22%', right:'-3%',
-          background:'rgba(255,255,255,0.58)', borderRadius:'50%', filter:'blur(44px)',
-          animation:'cloud-drift-c 52s ease-in-out infinite 12s' }} />
-        {/* Cloud blob D — accent top-right */}
-        <div style={{ position:'absolute', width:'300px', height:'130px', top:'5%', right:'8%',
-          background:'rgba(255,255,255,0.35)', borderRadius:'50%', filter:'blur(50px)',
-          animation:'cloud-drift-a 60s ease-in-out infinite 3s' }} />
-        {/* Cloud blob E — soft mid-left */}
-        <div style={{ position:'absolute', width:'280px', height:'120px', top:'12%', left:'5%',
-          background:'rgba(255,255,255,0.30)', borderRadius:'50%', filter:'blur(45px)',
-          animation:'cloud-drift-b 48s ease-in-out infinite 18s' }} />
-      </div>
-
-      {/* ── Studio name strip — very faint, top of screen ── */}
-      <div className="studio-strip pointer-events-none fixed inset-x-0 top-0 z-0 flex items-center justify-center gap-8 px-8 py-2" aria-hidden="true">
-        <span>Universal</span>
-        <span>·</span>
-        <span>Warner Bros.</span>
-        <span>·</span>
-        <span>Paramount</span>
-        <span>·</span>
-        <span>Sony</span>
-        <span>·</span>
-        <span>Disney</span>
-      </div>
-
       <main className="w-full overflow-x-hidden pb-[env(safe-area-inset-bottom)]">
 
         <div className="mx-auto w-full max-w-7xl px-[clamp(1rem,3.5vw,2.5rem)] pb-20 pt-[clamp(2.25rem,7vh,5rem)]">
