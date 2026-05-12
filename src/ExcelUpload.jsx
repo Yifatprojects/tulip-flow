@@ -993,9 +993,14 @@ async function previewJournal(file, month, year, studio) {
     (existExpRes.status === 'fulfilled' && (existExpRes.value.count ?? 0) > 0) ||
     (existIncRes.status === 'fulfilled' && (existIncRes.value.count ?? 0) > 0)
 
+  const expenseTotal = expenseRows.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
+  const incomeTotal  = incomeRows.reduce((s, r)  => s + (Number(r.actual_amount) || 0), 0)
+
   return {
     expenseRows,
     incomeRows,
+    expenseTotal,
+    incomeTotal,
     unknownCodes:       [...unknownCodes],
     unknownFilms:       [...unknownFilms],
     uniqueFilms:        [...resolvedFilms],
@@ -1394,31 +1399,53 @@ function ExcelUploadModal({ onClose, onSuccess, initialType, contextFilm, lockTy
               </p>
 
               {/* Routing summary */}
-              <div className="rounded-xl border border-[rgba(75,69,148,0.3)] bg-[#F4F0FF] p-4">
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
-                    <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Expenses</p>
-                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#C0392B]">
-                      {preview.expenseRows.length}
-                    </p>
-                    <p className="text-[10px] text-[#8A7BAB]">rows</p>
+              {(() => {
+                const fmt = (n) => '₪' + Math.abs(n).toLocaleString('en-IL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                return (
+                  <div className="rounded-xl border border-[rgba(75,69,148,0.3)] bg-[#F4F0FF] p-4">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+
+                      {/* Expenses card */}
+                      <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
+                        <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Expenses</p>
+                        <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#C0392B]">
+                          {preview.expenseRows.length}
+                        </p>
+                        <p className="text-[10px] text-[#8A7BAB]">rows</p>
+                        {preview.expenseTotal > 0 && (
+                          <p className="mt-1 rounded-md bg-red-50 px-1.5 py-0.5 font-['Montserrat',sans-serif] text-[11px] font-bold tabular-nums text-[#C0392B]">
+                            {fmt(preview.expenseTotal)}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Income card */}
+                      <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
+                        <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Income</p>
+                        <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#0EA5A0]">
+                          {preview.incomeRows.length}
+                        </p>
+                        <p className="text-[10px] text-[#8A7BAB]">rows</p>
+                        {preview.incomeTotal > 0 && (
+                          <p className="mt-1 rounded-md bg-teal-50 px-1.5 py-0.5 font-['Montserrat',sans-serif] text-[11px] font-bold tabular-nums text-[#0EA5A0]">
+                            {fmt(preview.incomeTotal)}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Films card */}
+                      <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
+                        <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Films</p>
+                        <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#4B4594]">
+                          {preview.uniqueFilms.length}
+                        </p>
+                        <p className="text-[10px] text-[#8A7BAB]">unique</p>
+                      </div>
+
+                    </div>
                   </div>
-                  <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
-                    <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Income</p>
-                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#0EA5A0]">
-                      {preview.incomeRows.length}
-                    </p>
-                    <p className="text-[10px] text-[#8A7BAB]">rows</p>
-                  </div>
-                  <div className="rounded-lg bg-white px-2 py-2.5 shadow-sm">
-                    <p className="text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">Films</p>
-                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-lg font-extrabold text-[#4B4594]">
-                      {preview.uniqueFilms.length}
-                    </p>
-                    <p className="text-[10px] text-[#8A7BAB]">unique</p>
-                  </div>
-                </div>
-              </div>
+                )
+              })()}
 
               {/* Warnings — unknown priority codes */}
               {preview.unknownCodes.length > 0 && (
