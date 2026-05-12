@@ -2955,12 +2955,9 @@ export default function App() {
       )}
 
       {/* Footer — pinned to bottom of the viewport */}
-      <footer className="fixed bottom-0 inset-x-0 z-40 border-t border-[rgba(74,20,140,0.1)] bg-white/80 py-2.5 text-center backdrop-blur-sm">
-        <p className="text-[11px] text-[#B0A4CC]">
-          Built with <span className="text-[#E61E6E]">❤️</span>{' '}
-          by <span className="font-semibold text-[#4B4594]">Y.Tishler</span>
-        </p>
-      </footer>
+      <p className="fixed bottom-4 right-4 z-40 select-none text-[10px] text-[#B0A4CC]/60 pointer-events-none">
+        Built with <span className="text-[#E61E6E]/60">❤️</span> by Y.Tishler
+      </p>
     </div>
   )
 }
