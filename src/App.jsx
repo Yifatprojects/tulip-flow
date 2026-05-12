@@ -886,6 +886,45 @@ export default function App() {
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
   const adminMenuRef = useRef(null)
 
+  // ── Dashboard widgets ──────────────────────────────────────────────────────
+  const [lastUpdateInfo, setLastUpdateInfo] = useState(null) // { period, studio }
+
+  useEffect(() => {
+    async function fetchLastUpdate() {
+      try {
+        // Find the most recent month_period across both tables, plus which films
+        // were updated so we can derive the studio
+        const [expRes, rentRes] = await Promise.all([
+          supabase.from('actual_expenses')
+            .select('film_number, month_period')
+            .order('month_period', { ascending: false })
+            .limit(1),
+          supabase.from('rental_transactions')
+            .select('film_number, month_period')
+            .order('month_period', { ascending: false })
+            .limit(1),
+        ])
+        const candidates = [
+          ...(expRes.data  ?? []),
+          ...(rentRes.data ?? []),
+        ].sort((a, b) => (b.month_period > a.month_period ? 1 : -1))
+        if (candidates.length === 0) return
+        const latest = candidates[0]
+        // Resolve studio from films table
+        const { data: filmData } = await supabase
+          .from('films')
+          .select('studio')
+          .or(`film_number.eq.${latest.film_number},profit_center.eq.${latest.film_number}`)
+          .limit(1)
+        const studio = filmData?.[0]?.studio ?? null
+        const [yr, mo] = latest.month_period.split('-')
+        const label = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(mo)-1]} ${yr}`
+        setLastUpdateInfo({ period: label, studio: studio ? (studio === 'Other' ? 'Independent' : studio) : null })
+      } catch { /* silent */ }
+    }
+    void fetchLastUpdate()
+  }, [])
+
   const [selectedMovie, setSelectedMovie] = useState(null)
   const [budgetRows, setBudgetRows] = useState([])
   const [budgetLoading, setBudgetLoading] = useState(false)
@@ -1447,6 +1486,106 @@ export default function App() {
 
             {/* Monthly summary row */}
             {movies !== null && !loadError && <DashboardSummaryRow studioOptions={studioFilterOptions} />}
+
+            {/* ── Dashboard Widgets ────────────────────────────────────────── */}
+            {movies !== null && !loadError && (() => {
+              const today = new Date(); today.setHours(0,0,0,0)
+              const comingSoon = [...(movies ?? [])]
+                .filter(m => {
+                  if (!m.release_date) return false
+                  const d = new Date(m.release_date); d.setHours(0,0,0,0)
+                  return d >= today
+                })
+                .sort((a, b) => new Date(a.release_date) - new Date(b.release_date))
+                .slice(0, 5)
+
+              return (
+                <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+                  {/* ── Coming Soon ── */}
+                  <div className="col-span-1 sm:col-span-2 rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-[#E65100]" aria-hidden />
+                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Coming Soon</p>
+                    </div>
+                    {comingSoon.length === 0 ? (
+                      <p className="text-sm text-[#C0B8D8]">No upcoming releases found.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {comingSoon.map(m => {
+                          const d = new Date(m.release_date)
+                          const diff = Math.round((d - today) / 86400000)
+                          return (
+                            <li key={m.film_number} className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-[#2D1B69]">{m.title_en || m.title_he}</p>
+                                {m.title_he && m.title_en && (
+                                  <p className="truncate text-[11px] text-[#9A8AB8]" dir="rtl" lang="he">{m.title_he}</p>
+                                )}
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="font-['Montserrat',sans-serif] text-xs font-bold text-[#E65100]">{formatReleaseDate(m.release_date)}</p>
+                                <p className="text-[10px] text-[#9A8AB8]">{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff} days`}</p>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* ── Last Update ── */}
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
+                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update</p>
+                    </div>
+                    {lastUpdateInfo ? (
+                      <div>
+                        <p className="font-['Montserrat',sans-serif] text-xl font-extrabold text-[#2D1B69]">{lastUpdateInfo.period}</p>
+                        {lastUpdateInfo.studio && (
+                          <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-2 py-0.5 text-xs font-semibold text-[#4A148C]">
+                            {lastUpdateInfo.studio}
+                          </p>
+                        )}
+                        <p className="mt-2 text-[11px] text-[#9A8AB8]">Last expenses / rentals import</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
+                    )}
+                  </div>
+
+                  {/* ── Quick Actions ── */}
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <Settings className="h-4 w-4 text-[#4B4594]" aria-hidden />
+                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Quick Actions</p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <button type="button"
+                        onClick={() => setFilmsManagerOpen(true)}
+                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
+                        <Clapperboard className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                        Manage Films
+                      </button>
+                      <button type="button"
+                        onClick={() => setCatalogsManagerOpen('expenses')}
+                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
+                        <Receipt className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                        Manage Expenses
+                      </button>
+                      <button type="button"
+                        onClick={() => setCatalogsManagerOpen('rentals')}
+                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
+                        <Film className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                        Manage Rentals
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              )
+            })()}
 
           {movies === null && (
             <div className="flex items-center justify-center py-32">
