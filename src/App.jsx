@@ -1635,120 +1635,82 @@ export default function App() {
 
           {movies !== null && !loadError && (
             <>
-              <div className="grid min-w-0 grid-cols-1 items-start gap-[clamp(1.5rem,3vw,3rem)] lg:grid-cols-[minmax(380px,min(52%,48rem))_minmax(0,1fr)] xl:gap-x-[clamp(2rem,4vw,4rem)]">
-              <section className="min-w-0" aria-label="Movies">
-                <div
-                  className={`rounded-2xl ${brandBorder} bg-white/88 p-4 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md lg:sticky lg:top-[max(0.75rem,env(safe-area-inset-top))] lg:h-[min(calc(100dvh_-_1.5rem),calc(100dvh_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom)_-_1rem))]`}
+              <section aria-label="Movies">
+                <div className={`rounded-2xl ${brandBorder} bg-white/88 p-5 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md`}
                 >
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                    <h2 className="text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-[#4A148C]">
-                      Active Films
-                    </h2>
-                    <div className="flex items-center gap-2">
-                      {/* Sort by progress */}
-                      <button
-                        type="button"
-                        onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]"
-                        title="Sort by budget progress"
-                      >
-                        <ArrowUpDown className="h-3 w-3" aria-hidden />
-                        {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
-                      </button>
-                      {/* Hide no-data toggle */}
-                      <button
-                        type="button"
-                        onClick={() => setHideNoData(v => !v)}
-                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}
-                        title="Toggle showing films with no financial data"
-                      >
-                        {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
-                        {hideNoData ? 'Active only' : 'All films'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mb-4 flex flex-col gap-2">
-                    {/* Row 1: Search + Studio */}
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
-                      <div
-                        className={`flex min-h-[2.5rem] flex-1 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-2 shadow-[0_6px_14px_rgba(74,20,140,0.08)]`}
-                      >
-                        {searchLoading
-                          ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
-                          : <Search className="h-4 w-4 shrink-0 text-[#4A148C]" aria-hidden />
-                        }
-                        <input
-                          value={searchTerm}
-                          onChange={(e) => setSearchTerm(e.target.value)}
-                          placeholder="Search all films by name, code, or studio…"
-                          className="w-full min-w-0 bg-transparent text-sm text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
-                        />
-                        {searchTerm && (
-                          <button
-                            type="button"
-                            onClick={() => setSearchTerm('')}
-                            className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]"
-                            aria-label="Clear search"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex min-h-[2.5rem] shrink-0 items-center gap-2 sm:min-w-[11rem]">
-                        <label
-                          htmlFor="studio-name-filter"
-                          className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]"
-                        >
-                          Studio
-                        </label>
-                        <select
-                          id="studio-name-filter"
-                          value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
-                          onChange={(e) => setStudioFilter(e.target.value)}
-                          className={`w-full min-w-0 rounded-xl ${brandBorder} bg-white/95 px-2.5 py-2 text-xs font-medium text-[#5B4B7A] shadow-[0_6px_14px_rgba(74,20,140,0.08)] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 sm:max-w-[12rem]`}
-                        >
-                          <option value="">All studios</option>
-                          {studioFilterOptions.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
+                  {/* ── Toolbar: title + search + filters all in one bar ── */}
+                  <div className="mb-5 flex flex-wrap items-center gap-3">
+                    {/* Title + count */}
+                    <div className="flex items-baseline gap-2 mr-auto">
+                      <h2 className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-[#4A148C]">Active Films</h2>
+                      <span className="rounded-full bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-semibold text-[#4B4594]">{filteredMovies.length}</span>
                     </div>
 
-                    {/* Row 2: Budget Status filter pills */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                        Status
-                      </span>
+                    {/* Search */}
+                    <div className={`flex min-h-[2.25rem] w-56 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-1.5 shadow-sm`}>
+                      {searchLoading
+                        ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
+                        : <Search className="h-3.5 w-3.5 shrink-0 text-[#4A148C]" aria-hidden />}
+                      <input
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Search…"
+                        className="w-full min-w-0 bg-transparent text-xs text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
+                      />
+                      {searchTerm && (
+                        <button type="button" onClick={() => setSearchTerm('')} className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]" aria-label="Clear">
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Studio */}
+                    <select
+                      value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
+                      onChange={(e) => setStudioFilter(e.target.value)}
+                      className={`rounded-xl ${brandBorder} bg-white/95 px-2.5 py-1.5 text-xs font-medium text-[#5B4B7A] shadow-sm outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20`}
+                    >
+                      <option value="">All Studios</option>
+                      {studioFilterOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+
+                    {/* Status pills */}
+                    <div className="flex flex-wrap items-center gap-1">
                       {[
-                        { key: '',                label: 'All',            bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
-                        { key: 'plan_pre',        label: 'Plan Pre',       bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
-                        { key: 'screening_post',  label: 'Screening Post', bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
-                        { key: 'final',           label: 'Final',          bg: '#F0EBFF', activeBg: '#4B4594',  activeText: '#fff', text: '#4B4594' },
-                        { key: 'approved',        label: '✓ Approved',     bg: '#F0FBF5', activeBg: '#2FA36B',  activeText: '#fff', text: '#2FA36B' },
-                        { key: 'underspend',      label: '↓ Underspend',   bg: '#FFFBEB', activeBg: '#D97706',  activeText: '#fff', text: '#D97706' },
-                        { key: 'overspend',       label: '⚠ Overspend',    bg: '#FFF1F3', activeBg: '#C0004C',  activeText: '#fff', text: '#C0004C' },
+                        { key: '',               label: 'All',           activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
+                        { key: 'plan_pre',       label: 'Plan Pre',      activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
+                        { key: 'screening_post', label: 'Post',          activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
+                        { key: 'final',          label: 'Final',         activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
+                        { key: 'approved',       label: '✓ Approved',    activeBg: '#2FA36B', activeText: '#fff', text: '#2FA36B' },
+                        { key: 'underspend',     label: '↓ Under',       activeBg: '#D97706', activeText: '#fff', text: '#D97706' },
+                        { key: 'overspend',      label: '⚠ Over',        activeBg: '#C0004C', activeText: '#fff', text: '#C0004C' },
                       ].map(({ key, label, activeBg, activeText, text }) => {
                         const isActive = statusFilter === key
                         return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setStatusFilter(key)}
-                            style={isActive
-                              ? { background: activeBg, color: activeText }
-                              : { color: text }}
-                            className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all
-                              ${isActive
-                                ? 'shadow-sm'
-                                : 'bg-white/80 border border-[rgba(74,20,140,0.15)] hover:bg-[#F7F2FF]'}`}
-                          >
-                            {label}
-                          </button>
+                          <button key={key} type="button" onClick={() => setStatusFilter(key)}
+                            style={isActive ? { background: activeBg, color: activeText } : { color: text }}
+                            className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold transition-all
+                              ${isActive ? 'shadow-sm' : 'border border-[rgba(74,20,140,0.15)] bg-white/80 hover:bg-[#F7F2FF]'}`}
+                          >{label}</button>
                         )
                       })}
                     </div>
+
+                    {/* Sort + Active toggle */}
+                    <button type="button"
+                      onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
+                      className="inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]"
+                    >
+                      <ArrowUpDown className="h-3 w-3" aria-hidden />
+                      {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
+                    </button>
+                    <button type="button"
+                      onClick={() => setHideNoData(v => !v)}
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}
+                    >
+                      {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
+                      {hideNoData ? 'Active only' : 'All films'}
+                    </button>
                   </div>
 
                   {filteredMovies.length === 0 ? (
@@ -1758,30 +1720,26 @@ export default function App() {
                         : 'No films match the current filters.'}
                     </p>
                   ) : (
-                    <div className="movie-list-scroll lg:h-[calc(100%-6.5rem)] lg:overflow-y-auto lg:pr-1">
-                      <ul className="grid gap-2.5 sm:grid-cols-2">
-                        {filteredMovies.map((m) => (
-                          <li key={m.film_number}>
-                            <SortableMovieCard
-                              movie={m}
-                              totalBudget={movieBudgetTotals[m.film_number] ?? 0}
-                              actualSpent={movieMarketingTotals[m.film_number] ?? 0}
-                              latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
-                              latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
-                              latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
-                              isSelected={selectedMovie?.film_number === m.film_number}
-                              onSelect={() => setSelectedMovie(selectedMovie?.film_number === m.film_number ? null : m)}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {filteredMovies.map((m) => (
+                        <li key={m.film_number}>
+                          <SortableMovieCard
+                            movie={m}
+                            totalBudget={movieBudgetTotals[m.film_number] ?? 0}
+                            actualSpent={movieMarketingTotals[m.film_number] ?? 0}
+                            latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
+                            latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
+                            latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
+                            isSelected={selectedMovie?.film_number === m.film_number}
+                            onSelect={() => setSelectedMovie(selectedMovie?.film_number === m.film_number ? null : m)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
                   )}
 
                 </div>
               </section>
-
-            </div>
             </>
           )}
         </div>
