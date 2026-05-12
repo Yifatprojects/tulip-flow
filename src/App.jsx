@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
+  ArrowLeft, ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
   DollarSign, Download, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
   Save, Search, Settings, TrendingUp, X,
 } from 'lucide-react'
@@ -2016,7 +2016,17 @@ export default function App() {
 
             {/* ── Sticky header bar ── */}
             <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgba(74,20,140,0.14)] bg-white px-6 py-4 shadow-sm">
-              <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-3">
+                {/* Back arrow */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedMovie(null)}
+                  aria-label="Back to Dashboard"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#4A148C] transition hover:bg-[#EDE8F8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
+                >
+                  <ArrowLeft className="h-5 w-5" aria-hidden />
+                </button>
+                <div className="min-w-0">
                 <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Budget Overview</p>
                 <h1 className="truncate font-['Montserrat',sans-serif] text-xl font-extrabold text-[#4A148C]">
                   {movieTitleEnglish(film)}
@@ -2088,7 +2098,8 @@ export default function App() {
                     </div>
                   )
                 })()}
-              </div>
+                </div>{/* end inner title block */}
+              </div>{/* end left flex group */}
               <div className="flex shrink-0 items-center gap-2">
                 <ExcelUploadButton
                   initialType="budgets"
@@ -2097,13 +2108,6 @@ export default function App() {
                   onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
                 />
-                <button
-                  type="button"
-                  onClick={() => setSelectedMovie(null)}
-                  className="flex items-center gap-2 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-4 py-2 text-sm font-semibold text-[#4A148C] transition hover:bg-[#F0EBFF]"
-                >
-                  <X className="h-4 w-4" aria-hidden /> Back to Dashboard
-                </button>
               </div>
             </div>
 
