@@ -2955,8 +2955,8 @@ export default function App() {
       )}
 
       {/* Footer — pinned to bottom of the viewport */}
-      <p className="fixed bottom-4 right-4 z-40 select-none text-[10px] text-[#B0A4CC]/60 pointer-events-none">
-        Built with <span className="text-[#E61E6E]/60">❤️</span> by Y.Tishler
+      <p className="fixed bottom-6 left-6 z-50 select-none text-[11px] text-[#2D1B69] pointer-events-none">
+        Built with <span className="text-[#E61E6E]">❤️</span> by <span className="font-bold">Y.Tishler</span>
       </p>
     </div>
   )
