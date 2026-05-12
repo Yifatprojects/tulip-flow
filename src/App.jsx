@@ -2516,8 +2516,8 @@ export default function App() {
                         <td className="px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums" style={{ color: groupActual > 0 ? '#B91C1C' : '#C4B8D8' }}>
                           {groupActual > 0 ? formatCurrency(groupActual) : '—'}
                         </td>
-                        <td className={`px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums ${groupActual > 0 ? varianceCellClass(groupVariance) : 'text-[#C4B8D8]'}`}>
-                          {groupActual > 0 ? formatCurrency(groupVariance) : '—'}
+                        <td className={`px-4 py-3 text-right font-['Montserrat',sans-serif] font-bold tabular-nums ${varianceCellClass(groupVariance)}`}>
+                          {formatCurrency(groupVariance)}
                         </td>
                       </tr>
 
@@ -2599,7 +2599,7 @@ export default function App() {
                         Vendor:         '',
                         'Planned (₪)':  groupBudget,
                         'Actual (₪)':   groupActual || '',
-                        'Variance (₪)': groupActual > 0 ? groupVar : '',
+                        'Variance (₪)': groupVar,
                       })
                       // Child rows
                       for (const r of budgetRows) {
