@@ -49,7 +49,7 @@ export function LoginPage() {
             </span>
           </p>
           <p className="mt-2 font-['Georgia',serif] text-[0.8rem] italic tracking-[0.18em] text-[#7B52AB]/70">
-            Moving in sync
+            <span className="font-extrabold not-italic text-[#7B52AB]">movie</span>ing in sync
           </p>
         </div>
 
