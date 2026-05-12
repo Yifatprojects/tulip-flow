@@ -997,22 +997,27 @@ function DashboardSummaryRow({ studioOptions = [] }) {
               ) : drilldown.rows.length === 0 ? (
                 <p className="py-12 text-center text-sm text-[#C0B8D8]">No data found for this period.</p>
               ) : (
-                <table className="w-full border-collapse text-sm">
+                <table className="w-full border-collapse text-sm" style={{ tableLayout: 'fixed' }}>
+                  <colgroup>
+                    <col style={{ width: '110px' }} />
+                    <col style={{ width: '140px' }} />
+                    <col />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-[rgba(74,20,140,0.12)]">
-                      {['Month', 'Studio', 'Amount'].map(h => (
-                        <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
-                      ))}
+                      <th className="py-2 pl-0 pr-4 text-left text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Month</th>
+                      <th className="px-4 py-2 text-left text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Studio</th>
+                      <th className="py-2 pl-4 pr-0 text-right text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
                     {drilldown.rows.map((row, i) => (
                       <tr key={i} className="border-b border-[rgba(74,20,140,0.05)] transition hover:bg-[#FAFAFE]">
-                        <td className="py-2.5 pl-0 pr-2 font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#2D1B69]">{row.month}</td>
-                        <td className="px-2 py-2.5">
-                          <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{row.studio}</span>
+                        <td className="py-2.5 pl-0 pr-4 font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#2D1B69]">{row.month}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-block rounded-md bg-[#EDE8F8] px-2.5 py-0.5 text-[11px] font-bold text-[#4A148C]">{row.studio}</span>
                         </td>
-                        <td className={`py-2.5 pl-2 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
+                        <td className={`py-2.5 pl-4 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
                           {formatCurrency(row.amount)}
                         </td>
                       </tr>
