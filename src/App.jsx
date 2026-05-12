@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft, ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
-  DollarSign, Download, Edit2, Eye, EyeOff, Film, History, Loader2, LogOut, Plus, Receipt,
-  Save, Search, Settings, TrendingUp, X,
+  AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
+  ChevronDown, Clapperboard, DollarSign, Download, Edit2, Eye, EyeOff, Film,
+  History, Loader2, LogOut, Plus, Receipt, Save, Search, Settings, TrendingUp, X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
@@ -1800,36 +1800,49 @@ export default function App() {
                     {comingSoon.length === 0 ? (
                       <p className="text-sm text-[#C0B8D8]">No upcoming releases found.</p>
                     ) : (
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-1">
                         {comingSoon.map(m => {
                           const d = new Date(m.release_date)
                           const diff = Math.round((d - today) / 86400000)
                           const hasBudget = (movieBudgetTotals[m.film_number] ?? 0) > 0
+                          const daysLabel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff}d`
                           return (
                             <li key={m.film_number}>
                               <button
                                 type="button"
                                 onClick={() => setSelectedMovie(m)}
-                                className="group w-full rounded-xl px-3 py-2 text-left transition hover:bg-[#F7F4FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
+                                className="group grid w-full grid-cols-[1fr_auto] items-center gap-x-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-[rgba(74,20,140,0.12)] hover:bg-[#F7F4FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="line-clamp-1 text-sm font-semibold text-[#2D1B69] group-hover:text-[#4B4594]">
-                                      {m.title_en || m.title_he}
-                                    </p>
-                                    {m.title_he && m.title_en && (
-                                      <p className="line-clamp-1 text-[10px] text-[#9A8AB8]" dir="rtl" lang="he">{m.title_he}</p>
-                                    )}
-                                    {!hasBudget && (
-                                      <p className="mt-0.5 text-[10px] font-semibold text-[#D97706]">
-                                        ⚠️ Missing Budget — Action Required
-                                      </p>
+                                {/* Left: titles + budget status */}
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-semibold text-[#2D1B69] group-hover:text-[#4B4594]">
+                                    {m.title_en || m.title_he}
+                                  </p>
+                                  {m.title_he && m.title_en && (
+                                    <p className="truncate text-[10px] text-[#9A8AB8]" dir="rtl" lang="he">{m.title_he}</p>
+                                  )}
+                                  {/* Always render budget status row for consistent height */}
+                                  <div className="mt-0.5 flex h-4 items-center">
+                                    {hasBudget ? (
+                                      <span className="flex items-center gap-1 text-[10px] font-medium text-[#2FA36B]">
+                                        <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
+                                        Budget set
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#D97706] ring-1 ring-amber-200">
+                                        <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
+                                        Missing Budget
+                                      </span>
                                     )}
                                   </div>
-                                  <div className="shrink-0 text-right">
-                                    <p className="font-['Montserrat',sans-serif] text-xs font-bold text-[#E65100]">{formatReleaseDate(m.release_date)}</p>
-                                    <p className="text-[10px] text-[#9A8AB8]">{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff} days`}</p>
-                                  </div>
+                                </div>
+
+                                {/* Right: date + countdown */}
+                                <div className="shrink-0 text-right">
+                                  <p className="font-['Montserrat',sans-serif] text-xs font-bold text-[#E65100]">
+                                    {formatReleaseDate(m.release_date)}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] text-[#9A8AB8]">{daysLabel}</p>
                                 </div>
                               </button>
                             </li>
