@@ -6,7 +6,7 @@ import {
 import { supabase } from './lib/supabaseClient'
 
 // ── Shared constants ───────────────────────────────────────────────────────────
-const EXPENSE_CATEGORY_OPTIONS = ['Media', 'Independent']
+const EXPENSE_CATEGORY_OPTIONS = ['מדיה', 'פרינט', 'אחר']
 const RENTAL_CATEGORY_OPTIONS  = ['Digital', 'Physical', 'TV', 'Other Format', 'Independent']
 
 // ── Tiny shared UI atoms ──────────────────────────────────────────────────────
@@ -270,9 +270,11 @@ function ExpensesCatalog() {
                       {isEditing
                         ? <TSelect value={draft.expense_type} onChange={v => setDraft(p => ({ ...p, expense_type: v }))} options={EXPENSE_CATEGORY_OPTIONS} />
                         : <span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ${
-                            row.expense_type === 'Media'
+                            row.expense_type === 'מדיה'
                               ? 'bg-[#EFF6FF] text-[#1D4ED8]'
-                              : row.expense_type === 'Independent'
+                              : row.expense_type === 'פרינט'
+                              ? 'bg-[#FFF1F3] text-[#C0004C]'
+                              : row.expense_type === 'אחר'
                               ? 'bg-[#FFFBEB] text-[#92400E]'
                               : 'bg-slate-100 text-[#6A5B88]'
                           }`}>{row.expense_type || '—'}</span>
