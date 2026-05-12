@@ -72,6 +72,15 @@
   }
 }
 
+/* Hide scrollbar while keeping scroll functionality */
+.no-scrollbar {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;   /* IE/Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;               /* Chrome/Safari/Opera */
+}
+
 .movie-list-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(123, 82, 171, 0.65) rgba(255, 255, 255, 0.06);

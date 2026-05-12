@@ -2155,7 +2155,7 @@ export default function App() {
             </div>
 
             {/* ── Scrollable body ── */}
-            <div className="flex-1 overflow-y-auto px-6 pb-20 pt-5">
+            <div className="no-scrollbar flex-1 overflow-y-auto px-6 pb-20 pt-5">
 
               {budgetLoading && (
                 <div className="flex items-center justify-center py-20">
@@ -2517,8 +2517,8 @@ export default function App() {
 
                   <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
                     <table className="w-full border-collapse text-sm">
-                      <thead className="sticky top-0 z-30">
-                        <tr className="bg-[#2D1B69]">
+                      <thead className="sticky top-0 z-[50] bg-[#2D1B69]">
+                        <tr>
                           {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right], i) => (
                             <th key={label} className={`bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}>
                               {label}
