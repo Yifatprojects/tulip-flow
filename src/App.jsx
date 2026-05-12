@@ -2323,13 +2323,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] shadow-md overflow-hidden">
-                    <div className="overflow-y-auto bg-white" style={{maxHeight:'calc(100vh - 340px)',scrollbarWidth:'thin',scrollbarColor:'rgba(74,20,140,0.25) transparent'}}>
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
                     <table className="w-full border-collapse text-sm">
-                      <thead className="sticky top-0 z-20">
+                      <thead className="sticky top-0 z-30">
                         <tr className="bg-[#2D1B69]">
-                          {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right]) => (
-                            <th key={label} className={`bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'}`}>
+                          {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right], i) => (
+                            <th key={label} className={`bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}>
                               {label}
                             </th>
                           ))}
@@ -2451,8 +2450,7 @@ export default function App() {
                         </tr>
                       </tfoot>
                     </table>
-                    </div>{/* end inner scroll div */}
-                  </div>{/* end outer visual div */}
+                  </div>
                   </>
                 )
               })()}
