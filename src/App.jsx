@@ -1672,9 +1672,9 @@ export default function App() {
                       <Settings className="h-3.5 w-3.5" aria-hidden /> Admin <ChevronDown className="h-3 w-3" />
                     </button>
                     {adminMenuOpen && (() => {
-                      const ALLOWED = 'eyalbar@tulipcp.com'
+                      const ALLOWED = ['eyalbar@tulipcp.com', 'yifatti@gmail.com']
                       const userEmail = session?.user?.email ?? ''
-                      const isAllowed = userEmail.toLowerCase() === ALLOWED
+                      const isAllowed = ALLOWED.includes(userEmail.toLowerCase())
 
                       return (
                         <div className="absolute right-0 top-full z-50 mt-1.5 w-[260px] overflow-hidden rounded-xl border border-[rgba(74,20,140,0.15)] bg-white shadow-[0_16px_40px_rgba(74,20,140,0.18)]">
