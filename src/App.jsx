@@ -1015,8 +1015,8 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                   <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
                     <colgroup>
                       <col style={{ width: '120px' }} />
-                      <col style={{ width: '150px' }} />
                       <col />
+                      <col style={{ width: '160px' }} />
                     </colgroup>
 
                     {/* Sticky header with frosted backing */}
