@@ -895,39 +895,58 @@ export default function App() {
   const [catalogImportPwError, setCatalogImportPwError] = useState('')
 
   // ── Dashboard widgets ──────────────────────────────────────────────────────
-  const [lastUpdateInfo, setLastUpdateInfo] = useState(null) // { period, studio }
+  const [lastUpdateInfo, setLastUpdateInfo] = useState(null) // array of { studio, period } | null
 
   useEffect(() => {
     async function fetchLastUpdate() {
       try {
-        // Find the most recent month_period across both tables, plus which films
-        // were updated so we can derive the studio
+        // 1. Load all films to build film_number/profit_center → studio map
+        const filmMap = new Map() // norm(key) → studio label
+        let page = 0
+        while (true) {
+          const { data } = await supabase.from('films')
+            .select('film_number, profit_center, profit_center_2, studio')
+            .range(page * 1000, page * 1000 + 999)
+          if (!data || data.length === 0) break
+          for (const f of data) {
+            const studio = f.studio === 'Other' ? 'Independent' : (f.studio ?? 'Unknown')
+            if (f.film_number)   filmMap.set(String(f.film_number).trim(),   studio)
+            if (f.profit_center) filmMap.set(String(f.profit_center).trim(), studio)
+            if (f.profit_center_2) filmMap.set(String(f.profit_center_2).trim(), studio)
+          }
+          if (data.length < 1000) break
+          page++
+        }
+
+        // 2. Fetch last ~500 rows from each table (enough to cover all studios)
         const [expRes, rentRes] = await Promise.all([
-          supabase.from('actual_expenses')
-            .select('film_number, month_period')
-            .order('month_period', { ascending: false })
-            .limit(1),
-          supabase.from('rental_transactions')
-            .select('film_number, month_period')
-            .order('month_period', { ascending: false })
-            .limit(1),
+          supabase.from('actual_expenses').select('film_number, month_period').order('month_period', { ascending: false }).limit(500),
+          supabase.from('rental_transactions').select('film_number, month_period').order('month_period', { ascending: false }).limit(500),
         ])
-        const candidates = [
-          ...(expRes.data  ?? []),
-          ...(rentRes.data ?? []),
-        ].sort((a, b) => (b.month_period > a.month_period ? 1 : -1))
-        if (candidates.length === 0) return
-        const latest = candidates[0]
-        // Resolve studio from films table
-        const { data: filmData } = await supabase
-          .from('films')
-          .select('studio')
-          .or(`film_number.eq.${latest.film_number},profit_center.eq.${latest.film_number}`)
-          .limit(1)
-        const studio = filmData?.[0]?.studio ?? null
-        const [yr, mo] = latest.month_period.split('-')
-        const label = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(mo)-1]} ${yr}`
-        setLastUpdateInfo({ period: label, studio: studio ? (studio === 'Other' ? 'Independent' : studio) : null })
+
+        // 3. Track max period per studio
+        const maxByStudio = new Map() // studio → max month_period string
+        for (const row of [...(expRes.data ?? []), ...(rentRes.data ?? [])]) {
+          const studio = filmMap.get(String(row.film_number ?? '').trim()) ?? null
+          if (!studio) continue
+          const cur = maxByStudio.get(studio)
+          if (!cur || row.month_period > cur) maxByStudio.set(studio, row.month_period)
+        }
+
+        if (maxByStudio.size === 0) return
+
+        const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        const toLabel = (mp) => {
+          const [yr, mo] = (mp ?? '').split('-')
+          return MONTHS[Number(mo) - 1] ? `${MONTHS[Number(mo) - 1]} ${yr}` : mp
+        }
+
+        // 4. Build sorted array (most-recent period first)
+        const result = [...maxByStudio.entries()]
+          .map(([studio, mp]) => ({ studio, period: toLabel(mp), raw: mp }))
+          .sort((a, b) => (b.raw > a.raw ? 1 : -1))
+
+        setLastUpdateInfo(result)
       } catch { /* silent */ }
     }
     void fetchLastUpdate()
@@ -1581,17 +1600,16 @@ export default function App() {
                   <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
                     <div className="mb-3 flex items-center gap-2">
                       <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
-                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update</p>
+                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update by Studio</p>
                     </div>
-                    {lastUpdateInfo ? (
-                      <div>
-                        <p className="font-['Montserrat',sans-serif] text-xl font-extrabold text-[#2D1B69]">{lastUpdateInfo.period}</p>
-                        {lastUpdateInfo.studio && (
-                          <p className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-2 py-0.5 text-xs font-semibold text-[#4A148C]">
-                            {lastUpdateInfo.studio}
-                          </p>
-                        )}
-                        <p className="mt-2 text-[11px] text-[#9A8AB8]">Last expenses / rentals import</p>
+                    {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
+                      <div className="space-y-2">
+                        {lastUpdateInfo.map(({ studio, period }) => (
+                          <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
+                            <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
+                            <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
