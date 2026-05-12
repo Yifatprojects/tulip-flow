@@ -2527,7 +2527,13 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
+                  {/*
+                    Outer wrapper: overflow:clip clips painted content that scrolls past
+                    the sticky header without breaking sticky positioning (unlike overflow:hidden).
+                    The sticky <th> cells stick relative to the nearest scroll ancestor
+                    (the .no-scrollbar flex-1 overflow-y-auto div above).
+                  */}
+                  <div style={{ borderRadius: '1rem', border: '1px solid rgba(74,20,140,0.18)', background: 'white', boxShadow: '0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1)', overflow: 'clip' }}>
                     <table className="w-full border-collapse text-sm">
                       <thead>
                         <tr>
@@ -2537,9 +2543,8 @@ export default function App() {
                               style={{
                                 position: 'sticky',
                                 top: 0,
-                                zIndex: 100,
+                                zIndex: 10,
                                 backgroundColor: '#2D1B69',
-                                willChange: 'transform',
                               }}
                               className={`px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}
                             >
@@ -2548,7 +2553,7 @@ export default function App() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody style={{ isolation: 'isolate', position: 'relative', zIndex: 0 }}>
+                      <tbody>
                         {budgetFilter === 'all' && hasMediaFlag ? (
                           <>
                             {mediaGroups.length > 0 && (
