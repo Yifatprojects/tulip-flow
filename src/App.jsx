@@ -1573,22 +1573,38 @@ export default function App() {
                     {comingSoon.length === 0 ? (
                       <p className="text-sm text-[#C0B8D8]">No upcoming releases found.</p>
                     ) : (
-                      <ul className="space-y-2">
+                      <ul className="space-y-1.5">
                         {comingSoon.map(m => {
                           const d = new Date(m.release_date)
                           const diff = Math.round((d - today) / 86400000)
+                          const hasBudget = (movieBudgetTotals[m.film_number] ?? 0) > 0
                           return (
-                            <li key={m.film_number} className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-[#2D1B69]">{m.title_en || m.title_he}</p>
-                                {m.title_he && m.title_en && (
-                                  <p className="truncate text-[11px] text-[#9A8AB8]" dir="rtl" lang="he">{m.title_he}</p>
-                                )}
-                              </div>
-                              <div className="shrink-0 text-right">
-                                <p className="font-['Montserrat',sans-serif] text-xs font-bold text-[#E65100]">{formatReleaseDate(m.release_date)}</p>
-                                <p className="text-[10px] text-[#9A8AB8]">{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff} days`}</p>
-                              </div>
+                            <li key={m.film_number}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedMovie(m)}
+                                className="group w-full rounded-xl px-3 py-2 text-left transition hover:bg-[#F7F4FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="line-clamp-1 text-sm font-semibold text-[#2D1B69] group-hover:text-[#4B4594]">
+                                      {m.title_en || m.title_he}
+                                    </p>
+                                    {m.title_he && m.title_en && (
+                                      <p className="line-clamp-1 text-[10px] text-[#9A8AB8]" dir="rtl" lang="he">{m.title_he}</p>
+                                    )}
+                                    {!hasBudget && (
+                                      <p className="mt-0.5 text-[10px] font-semibold text-[#D97706]">
+                                        ⚠️ Missing Budget — Action Required
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="font-['Montserrat',sans-serif] text-xs font-bold text-[#E65100]">{formatReleaseDate(m.release_date)}</p>
+                                    <p className="text-[10px] text-[#9A8AB8]">{diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff} days`}</p>
+                                  </div>
+                                </div>
+                              </button>
                             </li>
                           )
                         })}
