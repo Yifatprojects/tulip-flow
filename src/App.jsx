@@ -1000,8 +1000,8 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-[rgba(74,20,140,0.12)]">
-                      {['Month', 'Studio', 'Rows', 'Amount'].map(h => (
-                        <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' || h === 'Rows' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
+                      {['Month', 'Studio', 'Amount'].map(h => (
+                        <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1012,7 +1012,6 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                         <td className="px-2 py-2.5">
                           <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{row.studio}</span>
                         </td>
-                        <td className="px-2 py-2.5 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#9A8AB8]">{row.rows}</td>
                         <td className={`py-2.5 pl-2 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
                           {formatCurrency(row.amount)}
                         </td>
@@ -1025,10 +1024,7 @@ function DashboardSummaryRow({ studioOptions = [] }) {
 
             {/* Footer total */}
             {!drilldown.loading && drilldown.rows.length > 0 && (
-              <div className="flex shrink-0 items-center justify-between border-t border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] px-6 py-3">
-                <span className="text-[11px] font-semibold text-[#8A7BAB]">
-                  {drilldown.rows.length} row{drilldown.rows.length !== 1 ? 's' : ''}
-                </span>
+              <div className="flex shrink-0 items-center justify-end border-t border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] px-6 py-3">
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-semibold text-[#8A7BAB]">Total</span>
                   <span
