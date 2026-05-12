@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft, ArrowUpDown, BookOpen, Calendar, ChevronDown, Clapperboard,
-  DollarSign, Download, Edit2, Eye, EyeOff, Film, Loader2, LogOut, Plus, Receipt,
+  DollarSign, Download, Edit2, Eye, EyeOff, Film, History, Loader2, LogOut, Plus, Receipt,
   Save, Search, Settings, TrendingUp, X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -13,6 +13,7 @@ import tulipLogo from './assets/tulip-logo.png'
 import { ExcelUploadButton } from './ExcelUpload'
 import { FilmsManagementModal } from './FilmsManagement'
 import { CatalogsManagementModal } from './CatalogsManagement'
+import UploadsManagementModal from './UploadsManagement'
 import { LoginPage } from './LoginPage'
 
 /** @typedef {import('./types/movie').Movie} Movie */
@@ -890,6 +891,7 @@ export default function App() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
+  const [uploadsManagerOpen, setUploadsManagerOpen]   = useState(false)
   const adminMenuRef = useRef(null)
   // Catalog-import gate: 'locked' | 'challenging' | 'unlocked'
   const [catalogImportGate, setCatalogImportGate] = useState('locked')
@@ -1695,6 +1697,12 @@ export default function App() {
                         className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
                         <Film className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
                         Manage Rentals
+                      </button>
+                      <button type="button"
+                        onClick={() => setUploadsManagerOpen(true)}
+                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
+                        <History className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                        Manage Uploads
                       </button>
                     </div>
                   </div>
@@ -2770,6 +2778,10 @@ export default function App() {
           defaultTab={catalogsManagerOpen}
           onClose={() => setCatalogsManagerOpen(null)}
         />
+      )}
+
+      {uploadsManagerOpen && (
+        <UploadsManagementModal onClose={() => setUploadsManagerOpen(false)} />
       )}
 
       {filmsManagerOpen && (
