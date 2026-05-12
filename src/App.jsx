@@ -958,92 +958,125 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       )}
 
       {/* ── Drill-down modal ── */}
-      {drilldown && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-12"
-          style={{ background: 'rgba(45,27,105,0.40)', backdropFilter: 'blur(4px)' }}
-          onClick={() => setDrilldown(null)}
-        >
+      {drilldown && (() => {
+        const isRevenue = drilldown.type === 'revenue'
+        const accentColor = isRevenue ? '#2FA36B' : '#7B52AB'
+        const accentLight = isRevenue ? '#F0FBF5' : '#F4F0FF'
+        return (
           <div
-            className="relative w-full max-w-3xl rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-[0_32px_72px_rgba(74,20,140,0.26)]"
-            style={{ maxHeight: '86vh', display: 'flex', flexDirection: 'column' }}
-            onClick={e => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-10"
+            style={{ background: 'rgba(30,16,74,0.55)', backdropFilter: 'blur(6px)' }}
+            onClick={() => setDrilldown(null)}
           >
-            {/* Header */}
-            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgba(74,20,140,0.1)] px-6 py-4">
-              <div>
-                <h2 className="font-['Montserrat',sans-serif] text-base font-extrabold text-[#2D1B69]">
-                  Calculation Breakdown — {drilldown.type === 'revenue' ? 'Revenue' : 'Expenses'} YTD {drilldown.year}
-                </h2>
-                <p className="mt-0.5 text-[11px] text-[#9A8AB8]">
-                  {summaryStudio ? `Studio: ${summaryStudio}` : 'All Studios'} · January 1 – present
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDrilldown(null)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-[#9A8AB8] transition hover:bg-[#F0EBFF] hover:text-[#4A148C]"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              {drilldown.loading ? (
-                <div className="flex items-center justify-center py-16">
-                  <Loader2 className="h-7 w-7 animate-spin text-[#4B4594]" />
+            <div
+              className="relative w-full max-w-2xl overflow-hidden rounded-2xl"
+              style={{
+                maxHeight: '88vh', display: 'flex', flexDirection: 'column',
+                background: 'rgba(255,255,255,0.97)',
+                border: '1px solid rgba(74,20,140,0.14)',
+                boxShadow: '0 40px 80px rgba(30,16,74,0.30), 0 0 0 1px rgba(255,255,255,0.6) inset',
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* ── Modal header ── */}
+              <div className="flex shrink-0 items-center justify-between gap-4 px-6 py-5"
+                   style={{ borderBottom: '1px solid rgba(74,20,140,0.08)' }}>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl"
+                       style={{ background: accentLight }}>
+                    {isRevenue
+                      ? <TrendingUp className="h-4 w-4" style={{ color: accentColor }} />
+                      : <Receipt className="h-4 w-4" style={{ color: accentColor }} />}
+                  </div>
+                  <div>
+                    <h2 className="font-['Montserrat',sans-serif] text-[15px] font-extrabold text-[#2D1B69]">
+                      {isRevenue ? 'Revenue' : 'Expenses'} YTD {drilldown.year}
+                    </h2>
+                    <p className="mt-0.5 text-[11px] text-[#9A8AB8]">
+                      {summaryStudio || 'All Studios'} · Jan 1 – present
+                    </p>
+                  </div>
                 </div>
-              ) : drilldown.rows.length === 0 ? (
-                <p className="py-12 text-center text-sm text-[#C0B8D8]">No data found for this period.</p>
-              ) : (
-                <table className="w-full border-collapse text-sm" style={{ tableLayout: 'fixed' }}>
-                  <colgroup>
-                    <col style={{ width: '110px' }} />
-                    <col style={{ width: '140px' }} />
-                    <col />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-[rgba(74,20,140,0.12)]">
-                      <th className="py-2 pl-0 pr-4 text-left text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Month</th>
-                      <th className="px-4 py-2 text-left text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Studio</th>
-                      <th className="py-2 pl-4 pr-0 text-right text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB]">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drilldown.rows.map((row, i) => (
-                      <tr key={i} className="border-b border-[rgba(74,20,140,0.05)] transition hover:bg-[#FAFAFE]">
-                        <td className="py-2.5 pl-0 pr-4 font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#2D1B69]">{row.month}</td>
-                        <td className="px-4 py-2.5">
-                          <span className="inline-block rounded-md bg-[#EDE8F8] px-2.5 py-0.5 text-[11px] font-bold text-[#4A148C]">{row.studio}</span>
+                <button type="button" onClick={() => setDrilldown(null)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[#9A8AB8] transition hover:bg-[#F0EBFF] hover:text-[#4A148C]">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* ── Table body (scrollable) ── */}
+              <div className="flex-1 overflow-y-auto">
+                {drilldown.loading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-7 w-7 animate-spin text-[#4B4594]" />
+                  </div>
+                ) : drilldown.rows.length === 0 ? (
+                  <p className="py-12 text-center text-sm text-[#C0B8D8]">No data found for this period.</p>
+                ) : (
+                  <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: '120px' }} />
+                      <col style={{ width: '150px' }} />
+                      <col />
+                    </colgroup>
+
+                    {/* Sticky header with frosted backing */}
+                    <thead>
+                      <tr style={{
+                        position: 'sticky', top: 0, zIndex: 10,
+                        background: 'rgba(247,244,251,0.92)',
+                        backdropFilter: 'blur(8px)',
+                        borderBottom: '1px solid rgba(74,20,140,0.1)',
+                      }}>
+                        <th className="py-3 pl-6 pr-4 text-left text-[0.58rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">Month</th>
+                        <th className="px-4 py-3 text-left text-[0.58rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">Studio</th>
+                        <th className="py-3 pl-4 pr-6 text-right text-[0.58rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">Amount</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {drilldown.rows.map((row, i) => (
+                        <tr key={i}
+                          style={{ background: i % 2 === 0 ? 'white' : 'rgba(247,244,251,0.45)' }}
+                          className="transition-colors duration-100 hover:bg-[#EDE8F8]/60"
+                        >
+                          <td className="py-3 pl-6 pr-4 font-['JetBrains_Mono',ui-monospace,monospace] text-[13px] font-semibold tabular-nums text-[#2D1B69]">
+                            {row.month}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-block rounded-md px-2.5 py-0.5 text-[11px] font-bold"
+                              style={{ background: accentLight, color: accentColor }}>
+                              {row.studio}
+                            </span>
+                          </td>
+                          <td className="py-3 pl-4 pr-6 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-[13px] font-bold tabular-nums"
+                              style={{ color: accentColor }}>
+                            {formatCurrency(row.amount)}
+                          </td>
+                        </tr>
+                      ))}
+
+                      {/* Grand Total row */}
+                      <tr style={{
+                        borderTop: '2px solid rgba(74,20,140,0.15)',
+                        background: accentLight,
+                      }}>
+                        <td className="py-3.5 pl-6 pr-4 text-[12px] font-extrabold uppercase tracking-[0.1em] text-[#2D1B69]">
+                          Grand Total
                         </td>
-                        <td className={`py-2.5 pl-4 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
-                          {formatCurrency(row.amount)}
+                        <td className="px-4 py-3.5" />
+                        <td className="py-3.5 pl-4 pr-6 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-base font-extrabold tabular-nums"
+                            style={{ color: accentColor }}>
+                          {formatCurrency(drilldown.total)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Footer total */}
-            {!drilldown.loading && drilldown.rows.length > 0 && (
-              <div className="flex shrink-0 items-center justify-end border-t border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] px-6 py-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-[#8A7BAB]">Total</span>
-                  <span
-                    className="font-['Montserrat',sans-serif] text-base font-extrabold tabular-nums"
-                    style={{ color: drilldown.type === 'revenue' ? '#2FA36B' : '#7B52AB' }}
-                  >
-                    {formatCurrency(drilldown.total)}
-                  </span>
-                </div>
+                    </tbody>
+                  </table>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
