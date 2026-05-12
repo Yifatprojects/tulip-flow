@@ -1424,37 +1424,26 @@ export default function App() {
 
         <div className="mx-auto w-full max-w-7xl px-[clamp(1rem,3.5vw,2.5rem)] pb-20 pt-[clamp(2.25rem,7vh,5rem)]">
             <header className="mb-6 border-b border-[rgba(123,82,171,0.22)] pb-6">
-              {/* Logo + primary actions */}
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+              {/* Three-zone navbar: Logo | Actions | User */}
+              <div className="flex items-center gap-4">
+
+                {/* ── Left: Logo + tagline ── */}
+                <div className="flex shrink-0 items-center gap-3">
                   <img src={tulipLogo} alt="Tulip logo" className="h-10 w-10 shrink-0 rounded-md object-contain" />
                   <div>
                     <p className="flex items-baseline gap-2">
                       <span className="font-['Montserrat',sans-serif] text-xl font-extrabold tracking-[0.06em] text-[#4B4594]">TULIP</span>
                       <span className="font-['Montserrat',sans-serif] text-xl font-bold uppercase tracking-[0.08em] text-[#F9B233]">Flow</span>
                     </p>
-                    <p className="mt-1 font-['Georgia',serif] text-[0.7rem] italic tracking-[0.16em] text-[#7B52AB]/65">Moving in sync</p>
+                    {/* Tagline — "movie" emphasised, "ing in sync" lighter */}
+                    <p className="mt-1 font-['Georgia',serif] text-[0.7rem] italic tracking-[0.16em] text-[#7B52AB]/65">
+                      <span className="font-extrabold not-italic text-[#7B52AB]">movie</span>ing in sync
+                    </p>
                   </div>
                 </div>
 
-                {/* User + logout */}
-                <div className="flex items-center gap-2 text-[11px] text-[#8A7BAB]">
-                  <span className="hidden truncate max-w-[160px] sm:block" title={session.user?.email}>
-                    {session.user?.email}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => supabase.auth.signOut()}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]"
-                    title="Sign out"
-                  >
-                    <LogOut className="h-3.5 w-3.5" aria-hidden />
-                    Sign out
-                  </button>
-                </div>
-
-                {/* Primary action buttons */}
-                <div className="flex flex-wrap items-center gap-2">
+                {/* ── Centre: Primary action buttons (flex-1 centres them) ── */}
+                <div className="flex flex-1 flex-wrap items-center justify-center gap-2">
                   {/* Add Movie */}
                   <button
                     type="button"
@@ -1572,8 +1561,25 @@ export default function App() {
                       )
                     })()}
                   </div>
+                </div>{/* end centre actions */}
+
+                {/* ── Right: User email + Sign out ── */}
+                <div className="flex shrink-0 items-center gap-2 text-[11px] text-[#8A7BAB]">
+                  <span className="hidden max-w-[160px] truncate sm:block" title={session.user?.email}>
+                    {session.user?.email}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => supabase.auth.signOut()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]"
+                    title="Sign out"
+                  >
+                    <LogOut className="h-3.5 w-3.5" aria-hidden />
+                    Sign out
+                  </button>
                 </div>
-              </div>
+
+              </div>{/* end three-zone navbar */}
             </header>
 
             {/* Monthly summary row */}
