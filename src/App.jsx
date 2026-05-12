@@ -889,6 +889,10 @@ export default function App() {
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
   const adminMenuRef = useRef(null)
+  // Catalog-import gate: 'locked' | 'challenging' | 'unlocked'
+  const [catalogImportGate, setCatalogImportGate] = useState('locked')
+  const [catalogImportPwInput, setCatalogImportPwInput] = useState('')
+  const [catalogImportPwError, setCatalogImportPwError] = useState('')
 
   // ── Dashboard widgets ──────────────────────────────────────────────────────
   const [lastUpdateInfo, setLastUpdateInfo] = useState(null) // { period, studio }
@@ -1181,9 +1185,14 @@ export default function App() {
     return [...withoutInd, 'Independent']
   }, [movies])
 
-  // Close admin menu on outside click
+  // Close admin menu on outside click; re-lock catalog import gate when menu closes
   useEffect(() => {
-    if (!adminMenuOpen) return
+    if (!adminMenuOpen) {
+      setCatalogImportGate('locked')
+      setCatalogImportPwInput('')
+      setCatalogImportPwError('')
+      return
+    }
     function handler(e) {
       if (adminMenuRef.current && !adminMenuRef.current.contains(e.target)) setAdminMenuOpen(false)
     }
@@ -1433,56 +1442,86 @@ export default function App() {
                     >
                       <Settings className="h-3.5 w-3.5" aria-hidden /> Admin <ChevronDown className="h-3 w-3" />
                     </button>
-                    {adminMenuOpen && (
-                      <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[200px] overflow-hidden rounded-xl border border-[rgba(74,20,140,0.15)] bg-white shadow-[0_16px_40px_rgba(74,20,140,0.18)]">
-                        {/* Manage section */}
-                        <div className="border-b border-[rgba(74,20,140,0.08)] px-2 pb-2 pt-2 space-y-0.5">
-                          <p className="px-2.5 pb-1 pt-0.5 text-[0.55rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Manage</p>
-                          <button
-                            type="button"
-                            onClick={() => { setAdminMenuOpen(false); setFilmsManagerOpen(true) }}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
-                          >
-                            <Clapperboard className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
-                            Manage Films
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setAdminMenuOpen(false); setCatalogsManagerOpen('expenses') }}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
-                          >
-                            <Receipt className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
-                            Manage Expenses Catalog
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setAdminMenuOpen(false); setCatalogsManagerOpen('rentals') }}
-                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#F7F2FF]"
-                          >
-                            <DollarSign className="h-3.5 w-3.5 shrink-0 text-[#4B4594]" aria-hidden />
-                            Manage Rentals Catalog
-                          </button>
+                    {adminMenuOpen && (() => {
+                      const ALLOWED = 'eyalbar@tulipcp.com'
+                      const userEmail = session?.user?.email ?? ''
+                      const isAllowed = userEmail.toLowerCase() === ALLOWED
+
+                      return (
+                        <div className="absolute right-0 top-full z-50 mt-1.5 w-[260px] overflow-hidden rounded-xl border border-[rgba(74,20,140,0.15)] bg-white shadow-[0_16px_40px_rgba(74,20,140,0.18)]">
+                          <p className="px-3.5 pt-3 pb-1 text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Catalog Imports</p>
+
+                          {/* ── Access-denied state ── */}
+                          {!isAllowed && (
+                            <div className="mx-2 mb-3 rounded-lg bg-[#FFF1F3] px-3 py-3 text-center ring-1 ring-[#F43F5E]/20">
+                              <div className="mb-1 text-lg">🔒</div>
+                              <p className="text-[11px] font-bold text-[#C0004C]">Access Denied</p>
+                              <p className="mt-0.5 text-[10px] text-[#9B2C2C]">Authorized Personnel Only</p>
+                            </div>
+                          )}
+
+                          {/* ── Password challenge ── */}
+                          {isAllowed && catalogImportGate === 'locked' && (
+                            <div className="mx-2 mb-3 rounded-lg bg-[#F7F4FB] px-3 py-3 ring-1 ring-[rgba(74,20,140,0.12)]">
+                              <p className="mb-2 text-[11px] font-semibold text-[#4B4594]">Confirm your password to continue</p>
+                              <input
+                                type="password"
+                                value={catalogImportPwInput}
+                                onChange={e => { setCatalogImportPwInput(e.target.value); setCatalogImportPwError('') }}
+                                onKeyDown={async e => {
+                                  if (e.key !== 'Enter') return
+                                  const { error } = await supabase.auth.signInWithPassword({ email: userEmail, password: catalogImportPwInput })
+                                  if (error) { setCatalogImportPwError('Incorrect password.') }
+                                  else { setCatalogImportGate('unlocked'); setCatalogImportPwInput('') }
+                                }}
+                                placeholder="Password…"
+                                className="mb-1.5 w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-xs text-[#4B4594] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/20"
+                                autoFocus
+                              />
+                              {catalogImportPwError && <p className="mb-1.5 text-[10px] text-[#C0004C]">{catalogImportPwError}</p>}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const { error } = await supabase.auth.signInWithPassword({ email: userEmail, password: catalogImportPwInput })
+                                  if (error) { setCatalogImportPwError('Incorrect password.') }
+                                  else { setCatalogImportGate('unlocked'); setCatalogImportPwInput('') }
+                                }}
+                                className="w-full rounded-lg bg-[#4B4594] py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#3a3478]"
+                              >Unlock</button>
+                            </div>
+                          )}
+
+                          {/* ── Import tools (unlocked) ── */}
+                          {isAllowed && catalogImportGate === 'unlocked' && (
+                            <>
+                              {[
+                                { key: 'films',                label: 'Films list' },
+                                { key: 'expenses',             label: 'Expenses catalog' },
+                                { key: 'rentals',              label: 'Rentals catalog' },
+                                { key: 'actual_expenses',      label: 'Monthly Expenses' },
+                                { key: 'rental_transactions',  label: 'Monthly Income' },
+                              ].map(({ key, label }) => (
+                                <div key={key} className="px-2 py-0.5">
+                                  <ExcelUploadButton
+                                    initialType={key}
+                                    label={label}
+                                    onUploadSuccess={() => { setAdminMenuOpen(false); setCatalogImportGate('locked'); setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                                    className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-medium text-[#5B4B7A] transition hover:bg-[#F7F2FF] flex items-center gap-2"
+                                  />
+                                </div>
+                              ))}
+                              <div className="px-2 pb-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { setCatalogImportGate('locked'); setCatalogImportPwInput(''); setCatalogImportPwError('') }}
+                                  className="w-full rounded-lg border border-[rgba(74,20,140,0.15)] py-1.5 text-[10px] font-semibold text-[#8A7BAB] transition hover:bg-[#F7F2FF]"
+                                >🔒 Lock</button>
+                              </div>
+                            </>
+                          )}
                         </div>
-                        <p className="px-3.5 pt-3 pb-1 text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Catalog Imports</p>
-                        {[
-                          { key: 'films',         label: 'Films list' },
-                          { key: 'expenses',      label: 'Expenses catalog' },
-                          { key: 'rentals',       label: 'Rentals catalog' },
-                          { key: 'actual_expenses',      label: 'Monthly Expenses' },
-                          { key: 'rental_transactions',  label: 'Monthly Income' },
-                        ].map(({ key, label }) => (
-                          <div key={key} className="px-2 py-0.5">
-                            <ExcelUploadButton
-                              initialType={key}
-                              label={label}
-                              onUploadSuccess={() => { setAdminMenuOpen(false); setBudgetRefresh(n => n + 1); void refreshMovies() }}
-                              className="w-full rounded-lg px-2.5 py-2 text-left text-[11px] font-medium text-[#5B4B7A] transition hover:bg-[#F7F2FF] flex items-center gap-2"
-                            />
-                          </div>
-                        ))}
-                        <div className="p-2 pt-1" />
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 </div>
               </div>
