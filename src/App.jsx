@@ -684,57 +684,41 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         if (normId(f.profit_center)) filmMap[normId(f.profit_center)] = entry
       }
 
-      let rows = []
-
+      // 2. Fetch raw transactions
+      let rawRows = []
       if (type === 'revenue') {
-        // rental_transactions: month_period, film_number, actual_amount
-        const raw = await pageAll(
+        rawRows = await pageAll(
           supabase.from('rental_transactions')
             .select('film_number, actual_amount, month_period')
             .gte('month_period', ytdStart)
             .lte('month_period', currentMonth)
         )
-        rows = raw
-          .filter(r => {
-            if (!summaryStudio) return true
-            return normSt(filmMap[normId(r.film_number)]?.studio ?? '').toLowerCase() === normSt(summaryStudio).toLowerCase()
-          })
-          .map(r => ({
-            month:   r.month_period?.substring(0, 7) ?? '',
-            studio:  filmMap[normId(r.film_number)]?.studio  ?? '—',
-            movie:   filmMap[normId(r.film_number)]?.title   ?? r.film_number ?? '—',
-            amount:  Number(r.actual_amount) || 0,
-          }))
       } else {
-        // actual_expenses: exclude is_print; join with expenses catalog for category
-        const [raw, catalog] = await Promise.all([
-          pageAll(
-            supabase.from('actual_expenses')
-              .select('film_number, actual_amount, month_period, priority_code, is_print')
-              .gte('month_period', ytdStart)
-              .lte('month_period', currentMonth)
-              .eq('is_print', false)
-          ),
-          pageAll(supabase.from('expenses').select('priority_code, expense_description')),
-        ])
-        const catMap = {}
-        for (const c of catalog) catMap[String(c.priority_code)] = c.expense_description
-        rows = raw
-          .filter(r => {
-            if (!summaryStudio) return true
-            return normSt(filmMap[normId(r.film_number)]?.studio ?? '').toLowerCase() === normSt(summaryStudio).toLowerCase()
-          })
-          .map(r => ({
-            month:    r.month_period?.substring(0, 7) ?? '',
-            studio:   filmMap[normId(r.film_number)]?.studio ?? '—',
-            movie:    filmMap[normId(r.film_number)]?.title  ?? r.film_number ?? '—',
-            category: catMap[String(r.priority_code)] ?? r.priority_code ?? '—',
-            amount:   Number(r.actual_amount) || 0,
-          }))
+        rawRows = await pageAll(
+          supabase.from('actual_expenses')
+            .select('film_number, actual_amount, month_period, is_print')
+            .gte('month_period', ytdStart)
+            .lte('month_period', currentMonth)
+            .eq('is_print', false)
+        )
       }
 
-      // Sort: most recent month first, then largest amount
-      rows.sort((a, b) => b.month.localeCompare(a.month) || b.amount - a.amount)
+      // 3. Filter by selected studio, then aggregate by (month, studio)
+      const aggMap = new Map() // key: `month||studio`
+      for (const r of rawRows) {
+        const studio = normSt(filmMap[normId(r.film_number)]?.studio ?? 'Unknown')
+        if (summaryStudio && studio.toLowerCase() !== normSt(summaryStudio).toLowerCase()) continue
+        const month = r.month_period?.substring(0, 7) ?? ''
+        const key   = `${month}||${studio}`
+        if (!aggMap.has(key)) aggMap.set(key, { month, studio, amount: 0, rows: 0 })
+        const entry = aggMap.get(key)
+        entry.amount += Number(r.actual_amount) || 0
+        entry.rows++
+      }
+
+      const rows = [...aggMap.values()]
+      // Sort: most recent month first, then studio alphabetically
+      rows.sort((a, b) => b.month.localeCompare(a.month) || a.studio.localeCompare(b.studio))
       const total = rows.reduce((s, r) => s + r.amount, 0)
       setDrilldown({ type, rows, total, loading: false, year: currentYear })
     } catch (err) {
@@ -1016,28 +1000,20 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                 <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-[rgba(74,20,140,0.12)]">
-                      {drilldown.type === 'revenue'
-                        ? ['Month', 'Studio', 'Movie', 'Amount'].map(h => (
-                            <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
-                          ))
-                        : ['Month', 'Studio', 'Category', 'Movie', 'Amount'].map(h => (
-                            <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
-                          ))
-                      }
+                      {['Month', 'Studio', 'Rows', 'Amount'].map(h => (
+                        <th key={h} className={`py-2.5 text-[0.6rem] font-bold uppercase tracking-[0.14em] text-[#8A7BAB] ${h === 'Amount' || h === 'Rows' ? 'text-right' : 'text-left'} px-2 first:pl-0 last:pr-0`}>{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {drilldown.rows.map((row, i) => (
                       <tr key={i} className="border-b border-[rgba(74,20,140,0.05)] transition hover:bg-[#FAFAFE]">
-                        <td className="py-2 pl-0 pr-2 font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#6A5B88]">{row.month}</td>
-                        <td className="px-2 py-2">
-                          <span className="rounded-md bg-[#EDE8F8] px-1.5 py-0.5 text-[10px] font-bold text-[#4A148C]">{row.studio}</span>
+                        <td className="py-2.5 pl-0 pr-2 font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#2D1B69]">{row.month}</td>
+                        <td className="px-2 py-2.5">
+                          <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{row.studio}</span>
                         </td>
-                        {drilldown.type === 'expenses' && (
-                          <td className="max-w-[140px] truncate px-2 py-2 text-xs text-[#5B4B7A]" title={row.category}>{row.category}</td>
-                        )}
-                        <td className="max-w-[180px] truncate px-2 py-2 text-xs font-medium text-[#2D1B69]" title={row.movie}>{row.movie}</td>
-                        <td className={`py-2 pl-2 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
+                        <td className="px-2 py-2.5 text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#9A8AB8]">{row.rows}</td>
+                        <td className={`py-2.5 pl-2 pr-0 text-right font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums ${drilldown.type === 'revenue' ? 'text-[#2FA36B]' : 'text-[#7B52AB]'}`}>
                           {formatCurrency(row.amount)}
                         </td>
                       </tr>
