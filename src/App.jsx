@@ -2283,7 +2283,7 @@ export default function App() {
                   return (
                     <React.Fragment key={groupKey}>
                       {/* Parent summary row */}
-                      <tr className={`border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none transition-colors ${budgetEditMode ? '' : 'cursor-pointer'}`}
+                      <tr className={`border-t-2 border-[rgba(74,20,140,0.14)] ${parentBg} select-none ${budgetEditMode ? '' : 'cursor-pointer'}`}
                           onClick={budgetEditMode ? undefined : () => toggleGroup(groupKey)}>
                         <td className="px-4 py-3 font-bold text-[#2D1B69]">
                           {!budgetEditMode && <span className="mr-2 text-[10px] text-[#7B52AB]">{isExpanded ? '▾' : '▸'}</span>}
@@ -2529,16 +2529,26 @@ export default function App() {
 
                   <div className="rounded-2xl border border-[rgba(74,20,140,0.18)] bg-white shadow-md">
                     <table className="w-full border-collapse text-sm">
-                      <thead className="sticky top-0 z-[50] bg-[#2D1B69]">
+                      <thead>
                         <tr>
                           {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right], i) => (
-                            <th key={label} className={`sticky top-0 z-[50] bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}>
+                            <th
+                              key={label}
+                              style={{
+                                position: 'sticky',
+                                top: 0,
+                                zIndex: 100,
+                                backgroundColor: '#2D1B69',
+                                willChange: 'transform',
+                              }}
+                              className={`px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}
+                            >
                               {label}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="relative z-0">
+                      <tbody style={{ isolation: 'isolate', position: 'relative', zIndex: 0 }}>
                         {budgetFilter === 'all' && hasMediaFlag ? (
                           <>
                             {mediaGroups.length > 0 && (
