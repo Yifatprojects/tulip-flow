@@ -953,6 +953,18 @@ export default function App() {
   }, [])
 
   const [selectedMovie, setSelectedMovie] = useState(null)
+
+  // Lock body scroll while the budget overview is open so the browser-level
+  // scrollbar doesn't show through the fixed overlay
+  useEffect(() => {
+    if (selectedMovie) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [selectedMovie])
+
   const [budgetRows, setBudgetRows] = useState([])
   const [budgetLoading, setBudgetLoading] = useState(false)
   const [budgetError, setBudgetError] = useState(null)
@@ -2520,13 +2532,13 @@ export default function App() {
                       <thead className="sticky top-0 z-[50] bg-[#2D1B69]">
                         <tr>
                           {[['Name', false], ['Vendor', false], ['Planned (₪)', true], ['Actual (₪)', true], ['Variance', true]].map(([label, right], i) => (
-                            <th key={label} className={`bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}>
+                            <th key={label} className={`sticky top-0 z-[50] bg-[#2D1B69] px-4 py-3 text-[0.6rem] font-bold uppercase tracking-[0.15em] text-white/80 ${right ? 'text-right' : 'text-left'} ${i === 0 ? 'rounded-tl-2xl' : ''} ${i === 4 ? 'rounded-tr-2xl' : ''}`}>
                               {label}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="relative z-0">
                         {budgetFilter === 'all' && hasMediaFlag ? (
                           <>
                             {mediaGroups.length > 0 && (
