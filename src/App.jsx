@@ -1855,6 +1855,12 @@ export default function App() {
               </section>
             </>
           )}
+
+          {/* Credit — sits in the document flow, below the films grid */}
+          <p className="mt-10 pb-4 text-center text-[11px] text-[#2D1B69]">
+            Built with <span className="text-[#E61E6E]">❤️</span> by <span className="font-bold">Y.Tishler</span>
+          </p>
+
         </div>
       </main>
 
@@ -2954,10 +2960,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Footer — pinned to bottom of the viewport */}
-      <p className="fixed bottom-6 left-6 z-50 select-none text-[11px] text-[#2D1B69] pointer-events-none">
-        Built with <span className="text-[#E61E6E]">❤️</span> by <span className="font-bold">Y.Tishler</span>
-      </p>
     </div>
   )
 }
