@@ -279,9 +279,11 @@ async function fetchIncomeRows(filmNumber) {
 }
 
 function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
-  const spentRatio   = totalBudget > 0 ? Math.min((actualSpent / totalBudget) * 100, 100) : actualSpent > 0 ? 100 : 0
+  const rawRatio     = totalBudget > 0 ? (actualSpent / totalBudget) * 100 : actualSpent > 0 ? 100 : 0
+  const barRatio     = Math.min(rawRatio, 100)   // bar width capped at 100%
+  const spentRatio   = rawRatio                  // label shows real %, may exceed 100
   const isOverBudget = totalBudget > 0 && actualSpent > totalBudget
-  const isAt80       = !isOverBudget && spentRatio > 80
+  const isAt80       = !isOverBudget && rawRatio > 80
 
   return (
     <button
@@ -345,7 +347,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
         <div
           className="h-full rounded-full transition-all"
           style={{
-            width: `${spentRatio}%`,
+            width: `${barRatio}%`,
             background: isOverBudget
               ? 'linear-gradient(90deg,#E61E6E,#C0004C)'
               : isAt80
