@@ -281,8 +281,7 @@ async function fetchIncomeRows(filmNumber) {
 function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
   const spentRatio   = totalBudget > 0 ? Math.min((actualSpent / totalBudget) * 100, 100) : actualSpent > 0 ? 100 : 0
   const isOverBudget = totalBudget > 0 && actualSpent > totalBudget
-  const isAt90       = !isOverBudget && spentRatio >= 90
-  const isAt80       = !isOverBudget && spentRatio >= 80 && spentRatio < 90
+  const isAt80       = !isOverBudget && spentRatio > 80
 
   return (
     <button
@@ -341,23 +340,28 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className={`mb-1.5 h-2 w-full overflow-hidden rounded-full ${isOverBudget ? 'bg-[#FFE5EC]' : 'bg-[#F2E9FF]'}`}>
+      {/* Progress bar — same colour logic as budget overview */}
+      <div className="mb-1.5 h-2 w-full overflow-hidden rounded-full bg-[#EDE8F8]">
         <div
-          className={`h-full rounded-full transition-all ${
-            isOverBudget ? 'bg-gradient-to-r from-[#E61E6E] to-[#FF6B8A]'
-              : isAt90    ? 'bg-[#C65A00]'
-              : isAt80    ? 'bg-[#FF8A00]'
-              : 'bg-gradient-to-r from-[#7B52AB] via-[#E61E6E] to-[#F9B233]'
-          }`}
-          style={{ width: `${spentRatio}%` }}
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${spentRatio}%`,
+            background: isOverBudget
+              ? 'linear-gradient(90deg,#E61E6E,#C0004C)'
+              : isAt80
+              ? 'linear-gradient(90deg,#F59E0B,#D97706)'
+              : 'linear-gradient(90deg,#2FA36B,#0EA5A0)',
+          }}
         />
       </div>
 
       {/* Spent / progress label */}
       <div className="mb-2 flex items-center justify-between text-[10px] text-[#8A7BAB]">
         <span>Spent <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
-        <span className={`font-semibold tabular-nums ${isOverBudget ? 'text-[#E61E6E]' : isAt90 ? 'text-[#C65A00]' : 'text-[#8A7BAB]'}`}>
+        <span
+          className="font-semibold tabular-nums"
+          style={{ color: isOverBudget ? '#C0004C' : isAt80 ? '#D97706' : '#2FA36B' }}
+        >
           {spentRatio.toFixed(0)}%
         </span>
       </div>
