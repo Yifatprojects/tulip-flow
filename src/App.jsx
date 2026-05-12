@@ -2166,8 +2166,14 @@ export default function App() {
               })()}
             </div>
 
-            {/* ── Scrollable body ── */}
-            <div className="no-scrollbar flex-1 overflow-y-auto px-6 pb-20 pt-5">
+            {/* ── Scrollable body ──
+                IMPORTANT: no pt-* padding here. CSS sticky uses the content-box
+                as its reference, so any padding-top creates a gap ABOVE the sticky
+                header where scrolled-past rows remain visible. Use a child spacer
+                instead so it scrolls away and the header truly pins to top:0.        */}
+            <div className="no-scrollbar flex-1 overflow-y-auto px-6 pb-20">
+              {/* Spacer — scrolls away before the table header becomes sticky */}
+              <div className="h-5" aria-hidden="true" />
 
               {budgetLoading && (
                 <div className="flex items-center justify-center py-20">
