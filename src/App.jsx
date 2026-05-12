@@ -1232,31 +1232,49 @@ export default function App() {
   }, [movieBudgetTotals, movieMarketingTotals])
 
   const filteredMovies = useMemo(() => {
-    let base = isSearching
-      ? [...searchResults]
-      : Array.isArray(movies) ? [...movies] : []
+    const all = Array.isArray(movies) ? movies : []
+
+    let base
+    if (isSearching) {
+      base = [...searchResults]
+    } else if (hideNoData) {
+      // ── "Active Only" mode: 7 most-recently-released + 5 soonest-upcoming ──
+      const now = new Date(); now.setHours(0, 0, 0, 0)
+
+      const released = all
+        .filter(m => m.release_date && new Date(m.release_date) < now)
+        .sort((a, b) => new Date(b.release_date) - new Date(a.release_date)) // most recent first
+
+      const upcoming = all
+        .filter(m => m.release_date && new Date(m.release_date) >= now)
+        .sort((a, b) => new Date(a.release_date) - new Date(b.release_date)) // closest first
+
+      // Fill up to 12 if one group is short
+      const TARGET = 12, RELEASED_WANT = 7, UPCOMING_WANT = 5
+      let relCount = Math.min(released.length, RELEASED_WANT)
+      let upCount  = Math.min(upcoming.length, UPCOMING_WANT)
+      const leftover = TARGET - relCount - upCount
+      if (leftover > 0) {
+        if (released.length > relCount) relCount = Math.min(released.length, relCount + leftover)
+        else if (upcoming.length > upCount) upCount = Math.min(upcoming.length, upCount + leftover)
+      }
+
+      // Released descending, then upcoming ascending
+      base = [...released.slice(0, relCount), ...upcoming.slice(0, upCount)]
+    } else {
+      base = [...all]
+    }
 
     if (studioFilter !== '') {
       base = base.filter((m) => studioMatches(m.studio, studioFilter))
     }
 
     if (statusFilter !== '') {
-      // approved / underspend / overspend are all auto-computed from financial data
       if (['approved', 'overspend', 'underspend'].includes(statusFilter)) {
         base = base.filter((m) => getFilmPerfStatus(m) === statusFilter)
       } else {
-        // plan_pre / screening_post / final are manual stages stored on the film
         base = base.filter((m) => (m.budget_status || 'plan_pre') === statusFilter)
       }
-    }
-
-    if (hideNoData && !isSearching) {
-      base = base.filter((m) => {
-        const hasBudget  = (movieBudgetTotals[m.film_number] ?? 0) > 0
-        const hasActual  = (movieActualTotals[m.film_number] ?? 0) > 0
-        const hasIncome  = (movieIncomeTotals[m.film_number] ?? 0) > 0
-        return hasBudget || hasActual || hasIncome
-      })
     }
 
     if (!isSearching && progressSort !== 'none') {
@@ -1786,7 +1804,7 @@ export default function App() {
                       className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}
                     >
                       {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
-                      {hideNoData ? 'Active only' : 'All films'}
+                      {hideNoData ? '7 + 5 Active' : 'All films'}
                     </button>
                   </div>
 
