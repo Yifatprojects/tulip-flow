@@ -2206,19 +2206,19 @@ export default function App() {
             const existing = draftRows.filter(r => !r.isNew && r.id)
             const newRows  = draftRows.filter(r => r.isNew)
 
-            if (existing.length > 0) {
-              const { error } = await supabase.from('budgets').upsert(
-                existing.map(r => ({
-                  id:               r.id,
-                  film_number:      film.film_number,
-                  budget_item_name: r.categoryName || '',
-                  vendor_name:      r.vendorName   || null,
-                  planned_amount:   Number(r.budget) || 0,
-                  media_budget_code: r.mediaCode   || null,
-                  is_media:         r.isMedia,
-                })),
-                { onConflict: 'id' }
-              )
+            // Update existing rows one by one — avoids upsert ON CONFLICT issue
+            // when the budgets table has no explicit unique constraint on id.
+            for (const r of existing) {
+              const { error } = await supabase
+                .from('budgets')
+                .update({
+                  budget_item_name:  r.categoryName || '',
+                  vendor_name:       r.vendorName   || null,
+                  planned_amount:    Number(r.budget) || 0,
+                  media_budget_code: r.mediaCode     || null,
+                  is_media:          r.isMedia,
+                })
+                .eq('id', r.id)
               if (error) throw new Error(error.message)
             }
 
