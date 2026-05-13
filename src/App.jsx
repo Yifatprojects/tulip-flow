@@ -2224,19 +2224,20 @@ export default function App() {
             }
 
             if (newRows.length > 0) {
-              const { error } = await supabase.from('budgets').insert(
-                newRows
-                  .filter(r => r.categoryName.trim())
-                  .map(r => ({
-                    film_number:      film.film_number,
-                    budget_item_name: r.categoryName.trim(),
-                    vendor_name:      r.vendorName   || null,
-                    planned_amount:   Number(r.budget) || 0,
-                    media_budget_code: r.mediaCode   || null,
-                    is_media:         r.isMedia,
-                  }))
-              )
-              if (error) throw new Error(error.message)
+              const rowsToInsert = newRows
+                .filter(r => r.categoryName?.trim())
+                .map(r => ({
+                  film_number:       film.film_number,
+                  budget_item_name:  r.categoryName.trim(),
+                  vendor_name:       r.vendorName   || null,
+                  planned_amount:    Number(r.budget) || 0,
+                  media_budget_code: r.mediaCode     || null,
+                  is_media:          r.isMedia,
+                }))
+              if (rowsToInsert.length > 0) {
+                const { error } = await supabase.from('budgets').insert(rowsToInsert)
+                if (error) throw new Error(error.message)
+              }
             }
 
             setBudgetSaveToast('success')
