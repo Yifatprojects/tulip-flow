@@ -2138,7 +2138,7 @@ export default function App() {
         const updateDraft = (rowId, field, value) =>
           setDraftRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r))
 
-        const addDraftRow = (mediaCode) => {
+        const addDraftRow = (mediaCode, isMediaHint = false) => {
           setDraftRows(prev => [...prev, {
             id:           `new_${Date.now()}_${Math.random()}`,
             isNew:        true,
@@ -2146,7 +2146,7 @@ export default function App() {
             vendorName:   '',
             budget:       0,
             mediaCode:    mediaCode || '',
-            isMedia:      null,
+            isMedia:      isMediaHint, // default false avoids NOT NULL constraint failure
           }])
           // Ensure the group stays expanded so the new row is visible
           setExpandedGroups(prev => new Set([...prev, mediaCode || '__none__']))
@@ -2873,8 +2873,9 @@ export default function App() {
                                         title="Create a budget line for this expense"
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          const code = r.media_budget_code?.trim() || ''
-                                          addDraftRow(code)
+                                          const code      = r.media_budget_code?.trim() || ''
+                                          const isMediaHint = r.expense_type === 'מדיה'
+                                          addDraftRow(code, isMediaHint)
                                           setExpandedGroups(prev => new Set([...prev, code || '__none__']))
                                         }}
                                         className="ml-2 rounded bg-rose-200 px-1.5 py-0.5 text-[9px] font-bold text-rose-800 hover:bg-rose-300"
