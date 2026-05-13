@@ -2138,17 +2138,16 @@ export default function App() {
         const updateDraft = (rowId, field, value) =>
           setDraftRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r))
 
-        const addDraftRow = (mediaCode, isMediaHint = false) => {
+        const addDraftRow = (mediaCode, isMediaHint = false, prefill = {}) => {
           setDraftRows(prev => [...prev, {
             id:           `new_${Date.now()}_${Math.random()}`,
             isNew:        true,
-            categoryName: '',
-            vendorName:   '',
-            budget:       0,
+            categoryName: prefill.categoryName ?? '',
+            vendorName:   prefill.vendorName   ?? '',
+            budget:       prefill.budget       ?? 0,
             mediaCode:    mediaCode || '',
-            isMedia:      isMediaHint, // default false avoids NOT NULL constraint failure
+            isMedia:      isMediaHint,
           }])
-          // Ensure the group stays expanded so the new row is visible
           setExpandedGroups(prev => new Set([...prev, mediaCode || '__none__']))
         }
 
@@ -2526,8 +2525,7 @@ export default function App() {
                     type="button"
                     title={row.isMedia === true ? 'Media' : row.isMedia === false ? 'Non-Media' : 'Unknown'}
                     onClick={() => {
-                      const next = row.isMedia === true ? false : row.isMedia === false ? null : true
-                      updateDraft(row.id, 'isMedia', next)
+                      updateDraft(row.id, 'isMedia', row.isMedia !== true)
                     }}
                     className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition ${
                       row.isMedia === true  ? 'bg-[#BFDBFE] text-[#1D4ED8]' :
@@ -2873,9 +2871,13 @@ export default function App() {
                                         title="Create a budget line for this expense"
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          const code      = r.media_budget_code?.trim() || ''
+                                          const code        = r.media_budget_code?.trim() || ''
                                           const isMediaHint = r.expense_type === 'מדיה'
-                                          addDraftRow(code, isMediaHint)
+                                          addDraftRow(code, isMediaHint, {
+                                            categoryName: r.expense_description || r.priority_code || '',
+                                            vendorName:   r.studio_name || '',
+                                            budget:       Number(r.actual_amount) || 0,
+                                          })
                                           setExpandedGroups(prev => new Set([...prev, code || '__none__']))
                                         }}
                                         className="ml-2 rounded bg-rose-200 px-1.5 py-0.5 text-[9px] font-bold text-rose-800 hover:bg-rose-300"
