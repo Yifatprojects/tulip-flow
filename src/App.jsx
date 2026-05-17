@@ -2135,7 +2135,7 @@ export default function App() {
                       className={`shrink-0 inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition
                         ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}>
                       {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
-                      {hideNoData ? '7+5' : 'All'}
+                      {hideNoData ? 'Active only' : 'All films'}
                     </button>
                   </div>
 
