@@ -1309,15 +1309,15 @@ export default function App() {
         snapInc[fn] = monthlyIncByFilm[fn]?.[latestMonth] ?? 0
       }
 
-      // Fetch film details for films with any budget or journal data
-      const uniqueFns = [...new Set([...budgetedFns, ...Object.keys(actualTotals), ...Object.keys(incomeTotals)])]
+      // Fetch ALL films so that newly added films (with just a release date,
+      // no financial data yet) are visible in Coming Soon and the Active Films list.
       let filmsData = []
-      if (uniqueFns.length > 0) {
+      {
         let from = 0
         const PAGE = 1000
         while (true) {
           const { data: page, error: pageErr } = await supabase
-            .from('films').select('*').in('film_number', uniqueFns).order('title_en').range(from, from + PAGE - 1)
+            .from('films').select('*').order('title_en').range(from, from + PAGE - 1)
           if (pageErr) throw pageErr
           filmsData = filmsData.concat(page ?? [])
           if (!page || page.length < PAGE) break
