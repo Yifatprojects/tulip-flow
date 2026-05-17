@@ -1108,6 +1108,8 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState('') // '' | 'plan_pre' | 'screening_post' | 'final' | 'approved' | 'overspend' | 'underspend'
   const [progressSort, setProgressSort] = useState('none')
   const [hideNoData, setHideNoData] = useState(true)
+  const [dateFrom, setDateFrom]     = useState('') // ISO date string YYYY-MM-DD
+  const [dateTo, setDateTo]         = useState('')
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -1513,6 +1515,13 @@ export default function App() {
       }
     }
 
+    if (dateFrom) {
+      base = base.filter((m) => m.release_date && m.release_date >= dateFrom)
+    }
+    if (dateTo) {
+      base = base.filter((m) => m.release_date && m.release_date <= dateTo)
+    }
+
     if (!isSearching && progressSort !== 'none') {
       const ratioFor = (movie) => {
         const budget = Number(movieBudgetTotals[movie.film_number] ?? 0)
@@ -1529,7 +1538,7 @@ export default function App() {
     return base
   }, [
     movies, searchResults, isSearching, studioFilter, statusFilter, progressSort,
-    hideNoData, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
+    hideNoData, dateFrom, dateTo, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
     getFilmPerfStatus,
   ])
 
@@ -2030,6 +2039,32 @@ export default function App() {
                       <option value="">All Studios</option>
                       {studioFilterOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
+
+                    {/* Release date range */}
+                    <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.18)] bg-white/95 px-2.5 py-1 shadow-sm">
+                      <Calendar className="h-3 w-3 shrink-0 text-[#8A7BAB]" aria-hidden />
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={e => setDateFrom(e.target.value)}
+                        title="Release date from"
+                        className="w-[112px] bg-transparent text-[11px] text-[#5B4B7A] outline-none"
+                      />
+                      <span className="text-[10px] text-[#B0A4CC]">–</span>
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={e => setDateTo(e.target.value)}
+                        title="Release date to"
+                        className="w-[112px] bg-transparent text-[11px] text-[#5B4B7A] outline-none"
+                      />
+                      {(dateFrom || dateTo) && (
+                        <button type="button" onClick={() => { setDateFrom(''); setDateTo('') }}
+                          className="ml-0.5 text-[#B0A4CC] hover:text-[#C0004C]" title="Clear date filter">
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
 
                     {/* Status pills */}
                     <div className="flex flex-wrap items-center gap-1">
