@@ -1998,27 +1998,48 @@ export default function App() {
                       ) : (
                         <div className="space-y-2">
                           {lastActions.map(action => {
-                            const Icon = action.action_type === 'status_change' ? RefreshCw
-                                       : action.action_type === 'journal_upload' ? UploadCloud
-                                       : Edit2
-                            const iconColor = action.action_type === 'status_change' ? '#7B52AB'
-                                            : action.action_type === 'journal_upload' ? '#0EA5A0'
-                                            : '#E65100'
-                            const iconBg = action.action_type === 'status_change' ? '#F4F0FF'
-                                         : action.action_type === 'journal_upload' ? '#F0FAFA'
-                                         : '#FFF3E0'
+                            // icon + palette per action type
+                            const cfg = action.action_type === 'status_change'
+                              ? { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF',
+                                  label: `Status updated${action.film_title ? ` for` : ''}` }
+                              : action.action_type === 'budget_upload_per_film'
+                              ? { Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA',
+                                  label: 'Budget uploaded for' }
+                              : /* budget_edit */
+                                { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED',
+                                  label: 'Budget edited for' }
+
                             return (
                               <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
                                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
-                                     style={{ background: iconBg }}>
-                                  <Icon className="h-3 w-3" style={{ color: iconColor }} aria-hidden />
+                                     style={{ background: cfg.iconBg }}>
+                                  <cfg.Icon className="h-3 w-3" style={{ color: cfg.iconColor }} aria-hidden />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-[11px] leading-snug text-[#2D1B69]">
-                                    {action.description}
-                                    {action.film_title && (
-                                      <> — <em className="not-italic font-semibold text-[#4B4594]">{action.film_title}</em></>
-                                    )}
+                                    {action.action_type === 'status_change'
+                                      ? (() => {
+                                          // description is "Status updated: Plan Pre → Screening Post"
+                                          const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
+                                          return (
+                                            <>
+                                              Status updated
+                                              {action.film_title && (
+                                                <> for <strong className="font-semibold">{action.film_title}</strong></>
+                                              )}
+                                              {arrow && (
+                                                <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>
+                                              )}
+                                            </>
+                                          )
+                                        })()
+                                      : <>
+                                          {cfg.label}
+                                          {action.film_title && (
+                                            <> <strong className="font-semibold">{action.film_title}</strong></>
+                                          )}
+                                        </>
+                                    }
                                   </p>
                                   <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
                                 </div>

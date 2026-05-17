@@ -842,6 +842,16 @@ async function executeBudgetUpload(preview, mode) {
     if (error) throw new Error(error.message)
   }
 
+  // Log individual film budget upload
+  try {
+    await supabase.from('activity_log').insert({
+      action_type: 'budget_upload_per_film',
+      description: `Budget uploaded`,
+      film_title: preview.filmTitle || null,
+      film_number: String(filmNumber),
+    })
+  } catch (_) { /* non-critical */ }
+
   return {
     count: inserts.length,
     uniqueFilmCount: 1,
@@ -1067,17 +1077,6 @@ async function executeJournalUpload(preview, mode) {
   }
 
   const total = expenseRows.length + incomeRows.length
-
-  // Log this upload to activity_log
-  try {
-    const studio = preview.studio || ''
-    await supabase.from('activity_log').insert({
-      action_type: 'journal_upload',
-      description: `Expenses/Rentals uploaded for ${preview.monthLabel}${studio ? ` · ${studio}` : ''} (${total} rows)`,
-      film_title: null,
-      film_number: null,
-    })
-  } catch (_) { /* non-critical */ }
 
   return {
     count: total,
