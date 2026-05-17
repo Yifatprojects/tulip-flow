@@ -279,7 +279,7 @@ async function fetchIncomeRows(filmNumber) {
   }))
 }
 
-function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
+function SortableMovieCard({ movie, totalBudget, actualSpent, adPubSpent, printSpent, latestMonthExpenses, latestMonthIncome, latestMonthLabel, isSelected, onSelect }) {
   const rawRatio     = totalBudget > 0 ? (actualSpent / totalBudget) * 100 : actualSpent > 0 ? 100 : 0
   const barRatio     = Math.min(rawRatio, 100)   // bar width capped at 100%
   const spentRatio   = rawRatio                  // label shows real %, may exceed 100
@@ -367,6 +367,22 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, latestMonthExpense
         >
           {spentRatio.toFixed(0)}%
         </span>
+      </div>
+
+      {/* AdPub / Print breakdown */}
+      <div className="mb-2 grid grid-cols-2 gap-1.5">
+        <div className="rounded-lg bg-[#F0F9FF] px-2 py-1.5">
+          <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#0369A1]">AdPub Spent</p>
+          <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#0369A1]">
+            {formatCurrency(adPubSpent)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-[#FFF1F3] px-2 py-1.5">
+          <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#BE123C]">Print Spent</p>
+          <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#BE123C]">
+            {formatCurrency(printSpent)}
+          </p>
+        </div>
       </div>
 
       {/* Monthly snapshot */}
@@ -1097,6 +1113,7 @@ export default function App() {
   const [movieActualTotals, setMovieActualTotals] = useState({})
   const [movieIncomeTotals, setMovieIncomeTotals]     = useState({})
   const [movieMarketingTotals, setMovieMarketingTotals] = useState({})
+  const [moviePrintTotals, setMoviePrintTotals]         = useState({})
   const [movieLatestMonth, setMovieLatestMonth] = useState({})      // film_number → 'YYYY-MM-01'
   const [movieMonthlyExp,  setMovieMonthlyExp]  = useState({})      // film_number → expenses that month
   const [movieMonthlyInc,  setMovieMonthlyInc]  = useState({})      // film_number → income that month
@@ -1245,7 +1262,8 @@ export default function App() {
 
       // Actual expense totals + per-film monthly breakdown
       const actualTotals     = {}   // all expenses (including print)
-      const marketingTotals  = {}   // only non-print expenses (for progress bar)
+      const marketingTotals  = {}   // only non-print expenses (for progress bar / AdPub)
+      const printTotals      = {}   // only print expenses
       const latestMonthByFilm = {}
       const monthlyExpByFilm  = {}
       for (const row of (actualRes.status === 'fulfilled' ? actualRes.value.data : null) ?? []) {
@@ -1255,6 +1273,8 @@ export default function App() {
         actualTotals[row.film_number] = (actualTotals[row.film_number] ?? 0) + amt
         if (!isPrint) {
           marketingTotals[row.film_number] = (marketingTotals[row.film_number] ?? 0) + amt
+        } else {
+          printTotals[row.film_number] = (printTotals[row.film_number] ?? 0) + amt
         }
         if (row.month_period) {
           if (!latestMonthByFilm[row.film_number] || row.month_period > latestMonthByFilm[row.film_number]) {
@@ -1310,6 +1330,7 @@ export default function App() {
       setMovieBudgetTotals(budgetTotals)
       setMovieActualTotals(actualTotals)
       setMovieMarketingTotals(marketingTotals)
+      setMoviePrintTotals(printTotals)
       setMovieIncomeTotals(incomeTotals)
       setMovieLatestMonth(latestMonthByFilm)
       setMovieMonthlyExp(snapExp)
@@ -2153,6 +2174,8 @@ export default function App() {
                             movie={m}
                             totalBudget={movieBudgetTotals[m.film_number] ?? 0}
                             actualSpent={movieMarketingTotals[m.film_number] ?? 0}
+                            adPubSpent={movieMarketingTotals[m.film_number] ?? 0}
+                            printSpent={moviePrintTotals[m.film_number] ?? 0}
                             latestMonthLabel={movieLatestMonth[m.film_number]?.slice(0, 7) ?? null}
                             latestMonthExpenses={movieMonthlyExp[m.film_number] ?? 0}
                             latestMonthIncome={movieMonthlyInc[m.film_number] ?? 0}
