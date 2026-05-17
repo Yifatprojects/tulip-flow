@@ -1067,6 +1067,18 @@ async function executeJournalUpload(preview, mode) {
   }
 
   const total = expenseRows.length + incomeRows.length
+
+  // Log this upload to activity_log
+  try {
+    const studio = preview.studio || ''
+    await supabase.from('activity_log').insert({
+      action_type: 'journal_upload',
+      description: `Expenses/Rentals uploaded for ${preview.monthLabel}${studio ? ` · ${studio}` : ''} (${total} rows)`,
+      film_title: null,
+      film_number: null,
+    })
+  } catch (_) { /* non-critical */ }
+
   return {
     count: total,
     uniqueFilmCount: new Set([...expenseRows, ...incomeRows].map((r) => r.film_number)).size,

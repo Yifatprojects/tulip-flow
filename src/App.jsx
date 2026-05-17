@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
-  ChevronDown, Clapperboard, DollarSign, Download, Edit2, Eye, EyeOff, Film,
-  History, Loader2, LogOut, Plus, Receipt, Save, Search, Settings, TrendingUp, X,
+  ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2, Eye, EyeOff,
+  Film, History, Loader2, LogOut, Plus, Receipt, RefreshCw, Save, Search,
+  Settings, TrendingUp, UploadCloud, X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
@@ -85,6 +86,17 @@ function formatReleaseDate(value) {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   }
   return null
+}
+
+/** Returns a human-readable relative time string, e.g. "5 min ago", "2 hrs ago" */
+function timeAgo(isoString) {
+  if (!isoString) return ''
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+  if (diff < 60)   return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`
+  if (diff < 172800) return 'yesterday'
+  return `${Math.floor(diff / 86400)}d ago`
 }
 
 /** Soft glow: emerald when under budget, glowy red when over */
@@ -1129,6 +1141,7 @@ export default function App() {
   const [dateTo, setDateTo]             = useState('')
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef(null)
+  const [lastActions, setLastActions]   = useState([])
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -1347,6 +1360,30 @@ export default function App() {
   useEffect(() => {
     void refreshMovies()
   }, [refreshMovies])
+
+  // ── Activity log helpers ───────────────────────────────────────────────────
+  const logActivity = useCallback(async (action_type, description, film_title = null, film_number = null) => {
+    try {
+      await supabase.from('activity_log').insert({ action_type, description, film_title, film_number })
+    } catch (err) {
+      console.warn('[activityLog] insert failed:', err)
+    }
+  }, [])
+
+  const fetchLastActions = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('activity_log')
+        .select('id, action_type, description, film_title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(3)
+      setLastActions(data ?? [])
+    } catch (err) {
+      console.warn('[activityLog] fetch failed:', err)
+    }
+  }, [])
+
+  useEffect(() => { void fetchLastActions() }, [fetchLastActions])
 
   useEffect(() => {
     if (!selectedMovie) {
@@ -1927,25 +1964,72 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* ── Last Update ── */}
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                    <div className="mb-3 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
-                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update by Studio</p>
-                    </div>
-                    {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
-                      <div className="space-y-2">
-                        {lastUpdateInfo.map(({ studio, period }) => (
-                          <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
-                            <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
-                            <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
-                          </div>
-                        ))}
+                  {/* ── Last Update + Last Actions stacked ── */}
+                  <div className="flex flex-col gap-4">
+
+                    {/* Last Update */}
+                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
+                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update by Studio</p>
                       </div>
-                    ) : (
-                      <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
-                    )}
-                  </div>
+                      {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
+                        <div className="space-y-2">
+                          {lastUpdateInfo.map(({ studio, period }) => (
+                            <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
+                              <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
+                              <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
+                      )}
+                    </div>
+
+                    {/* Last Actions */}
+                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-[#7B52AB]" aria-hidden />
+                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Actions</p>
+                      </div>
+                      {lastActions.length === 0 ? (
+                        <p className="text-sm text-[#C0B8D8]">No actions recorded yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {lastActions.map(action => {
+                            const Icon = action.action_type === 'status_change' ? RefreshCw
+                                       : action.action_type === 'journal_upload' ? UploadCloud
+                                       : Edit2
+                            const iconColor = action.action_type === 'status_change' ? '#7B52AB'
+                                            : action.action_type === 'journal_upload' ? '#0EA5A0'
+                                            : '#E65100'
+                            const iconBg = action.action_type === 'status_change' ? '#F4F0FF'
+                                         : action.action_type === 'journal_upload' ? '#F0FAFA'
+                                         : '#FFF3E0'
+                            return (
+                              <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
+                                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                                     style={{ background: iconBg }}>
+                                  <Icon className="h-3 w-3" style={{ color: iconColor }} aria-hidden />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[11px] leading-snug text-[#2D1B69]">
+                                    {action.description}
+                                    {action.film_title && (
+                                      <> — <em className="not-italic font-semibold text-[#4B4594]">{action.film_title}</em></>
+                                    )}
+                                  </p>
+                                  <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>{/* end stacked column */}
 
                   {/* ── Quick Actions ── */}
                   <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
@@ -2282,8 +2366,16 @@ export default function App() {
               .update({ budget_status: newStatus })
               .eq('film_number', film.film_number)
             if (error) throw new Error(error.message)
-            // Reflect immediately in the open modal without waiting for refresh
             setSelectedMovie(prev => ({ ...prev, budget_status: newStatus }))
+            const oldStatus = film.budget_status || 'plan_pre'
+            const statusLabel = { plan_pre: 'Plan Pre', screening_post: 'Screening Post', final: 'Final' }
+            void logActivity(
+              'status_change',
+              `Status updated: ${statusLabel[oldStatus] ?? oldStatus} → ${statusLabel[newStatus] ?? newStatus}`,
+              film.title_en || film.title_he,
+              film.film_number,
+            )
+            void fetchLastActions()
             void refreshMovies()
           } catch (err) {
             console.error('Status save error:', err)
@@ -2335,6 +2427,13 @@ export default function App() {
             setBudgetEditMode(false)
             setDraftRows([])
             setBudgetRefresh(n => n + 1)
+            void logActivity(
+              'budget_edit',
+              'Budget updated',
+              film.title_en || film.title_he,
+              film.film_number,
+            )
+            void fetchLastActions()
             void refreshMovies()
             setTimeout(() => setBudgetSaveToast(null), 3500)
           } catch (err) {
