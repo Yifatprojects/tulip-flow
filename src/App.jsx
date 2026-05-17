@@ -1108,8 +1108,10 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState('') // '' | 'plan_pre' | 'screening_post' | 'final' | 'approved' | 'overspend' | 'underspend'
   const [progressSort, setProgressSort] = useState('none')
   const [hideNoData, setHideNoData] = useState(true)
-  const [dateFrom, setDateFrom]     = useState('') // ISO date string YYYY-MM-DD
-  const [dateTo, setDateTo]         = useState('')
+  const [dateFrom, setDateFrom]         = useState('')
+  const [dateTo, setDateTo]             = useState('')
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const datePickerRef = useRef(null)
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -1456,6 +1458,15 @@ export default function App() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [adminMenuOpen])
+
+  useEffect(() => {
+    if (!datePickerOpen) return
+    function handler(e) {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target)) setDatePickerOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [datePickerOpen])
 
   const isSearching = searchTerm.trim() !== ''
 
@@ -2004,27 +2015,28 @@ export default function App() {
               <section aria-label="Movies">
                 <div className={`rounded-2xl ${brandBorder} bg-white/88 p-5 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md`}
                 >
-                  {/* ── Toolbar: title + search + filters all in one bar ── */}
-                  <div className="mb-5 flex flex-wrap items-center gap-3">
+                  {/* ── Toolbar ── */}
+                  <div className="mb-5 flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5">
+
                     {/* Title + count */}
-                    <div className="flex items-baseline gap-2 mr-auto">
-                      <h2 className="text-[0.65rem] font-bold uppercase tracking-[0.22em] text-[#4A148C]">Active Films</h2>
-                      <span className="rounded-full bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-semibold text-[#4B4594]">{filteredMovies.length}</span>
+                    <div className="flex shrink-0 items-baseline gap-1.5 mr-1">
+                      <h2 className="text-[0.6rem] font-bold uppercase tracking-[0.22em] text-[#4A148C]">Active Films</h2>
+                      <span className="rounded-full bg-[#EDE8F8] px-1.5 py-0.5 text-[9px] font-semibold text-[#4B4594]">{filteredMovies.length}</span>
                     </div>
 
                     {/* Search */}
-                    <div className={`flex min-h-[2.25rem] w-56 items-center gap-2 rounded-xl ${brandBorder} bg-white/95 px-3 py-1.5 shadow-sm`}>
+                    <div className={`flex shrink-0 w-40 items-center gap-1.5 rounded-lg ${brandBorder} bg-white/95 px-2.5 py-1.5 shadow-sm`}>
                       {searchLoading
-                        ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
-                        : <Search className="h-3.5 w-3.5 shrink-0 text-[#4A148C]" aria-hidden />}
+                        ? <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#4A148C]" aria-hidden />
+                        : <Search className="h-3 w-3 shrink-0 text-[#4A148C]" aria-hidden />}
                       <input
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         placeholder="Search…"
-                        className="w-full min-w-0 bg-transparent text-xs text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
+                        className="w-full min-w-0 bg-transparent text-[11px] text-[#5B4B7A] outline-none placeholder:text-[#9A8AB8]"
                       />
                       {searchTerm && (
-                        <button type="button" onClick={() => setSearchTerm('')} className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]" aria-label="Clear">
+                        <button type="button" onClick={() => setSearchTerm('')} className="shrink-0 text-[#9A8AB8] hover:text-[#4A148C]">
                           <X className="h-3 w-3" />
                         </button>
                       )}
@@ -2034,54 +2046,79 @@ export default function App() {
                     <select
                       value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
                       onChange={(e) => setStudioFilter(e.target.value)}
-                      className={`rounded-xl ${brandBorder} bg-white/95 px-2.5 py-1.5 text-xs font-medium text-[#5B4B7A] shadow-sm outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20`}
+                      className={`shrink-0 rounded-lg ${brandBorder} bg-white/95 px-2 py-1.5 text-[11px] font-medium text-[#5B4B7A] shadow-sm outline-none transition focus:border-[#4B4594]`}
                     >
                       <option value="">All Studios</option>
                       {studioFilterOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
 
-                    {/* Release date range */}
-                    <div className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.18)] bg-white/95 px-2.5 py-1 shadow-sm">
-                      <Calendar className="h-3 w-3 shrink-0 text-[#8A7BAB]" aria-hidden />
-                      <input
-                        type="date"
-                        value={dateFrom}
-                        onChange={e => setDateFrom(e.target.value)}
-                        title="Release date from"
-                        className="w-[112px] bg-transparent text-[11px] text-[#5B4B7A] outline-none"
-                      />
-                      <span className="text-[10px] text-[#B0A4CC]">–</span>
-                      <input
-                        type="date"
-                        value={dateTo}
-                        onChange={e => setDateTo(e.target.value)}
-                        title="Release date to"
-                        className="w-[112px] bg-transparent text-[11px] text-[#5B4B7A] outline-none"
-                      />
-                      {(dateFrom || dateTo) && (
-                        <button type="button" onClick={() => { setDateFrom(''); setDateTo('') }}
-                          className="ml-0.5 text-[#B0A4CC] hover:text-[#C0004C]" title="Clear date filter">
-                          <X className="h-3 w-3" />
-                        </button>
+                    {/* Release date — compact pill → dropdown */}
+                    <div className="relative shrink-0" ref={datePickerRef}>
+                      <button
+                        type="button"
+                        onClick={() => setDatePickerOpen(v => !v)}
+                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold shadow-sm transition
+                          ${(dateFrom || dateTo)
+                            ? 'border-[#4B4594] bg-[#4B4594] text-white'
+                            : 'border-[rgba(74,20,140,0.18)] bg-white/95 text-[#5B4B7A] hover:bg-[#F7F2FF]'}`}
+                      >
+                        <Calendar className="h-3 w-3 shrink-0" aria-hidden />
+                        {dateFrom || dateTo
+                          ? `${dateFrom || '…'} – ${dateTo || '…'}`
+                          : 'Release Date'}
+                        {(dateFrom || dateTo) && (
+                          <span
+                            role="button"
+                            onClick={e => { e.stopPropagation(); setDateFrom(''); setDateTo(''); setDatePickerOpen(false) }}
+                            className="ml-0.5 opacity-70 hover:opacity-100"
+                            title="Clear"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </span>
+                        )}
+                      </button>
+
+                      {datePickerOpen && (
+                        <div className="absolute left-0 top-full z-30 mt-1.5 w-64 rounded-xl border border-[rgba(74,20,140,0.15)] bg-white p-3 shadow-[0_12px_32px_rgba(74,20,140,0.18)]">
+                          <p className="mb-2 text-[0.55rem] font-bold uppercase tracking-[0.16em] text-[#8A7BAB]">Release Date Range</p>
+                          <div className="flex flex-col gap-2">
+                            <label className="flex items-center gap-2">
+                              <span className="w-8 shrink-0 text-[10px] text-[#9A8AB8]">From</span>
+                              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                                className="flex-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-[#FAFAFE] px-2 py-1 text-[11px] text-[#2D1B69] outline-none focus:border-[#4B4594]" />
+                            </label>
+                            <label className="flex items-center gap-2">
+                              <span className="w-8 shrink-0 text-[10px] text-[#9A8AB8]">To</span>
+                              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                                className="flex-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-[#FAFAFE] px-2 py-1 text-[11px] text-[#2D1B69] outline-none focus:border-[#4B4594]" />
+                            </label>
+                          </div>
+                          {(dateFrom || dateTo) && (
+                            <button type="button" onClick={() => { setDateFrom(''); setDateTo('') }}
+                              className="mt-2 w-full rounded-lg border border-[rgba(192,0,76,0.2)] py-1 text-[10px] font-semibold text-[#C0004C] hover:bg-[#FFF1F3]">
+                              Clear dates
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
 
                     {/* Status pills */}
-                    <div className="flex flex-wrap items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-1">
                       {[
-                        { key: '',               label: 'All',           activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
-                        { key: 'plan_pre',       label: 'Plan Pre',      activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
-                        { key: 'screening_post', label: 'Post',          activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
-                        { key: 'final',          label: 'Final',         activeBg: '#4B4594', activeText: '#fff', text: '#4B4594' },
-                        { key: 'approved',       label: '✓ Approved',    activeBg: '#2FA36B', activeText: '#fff', text: '#2FA36B' },
-                        { key: 'underspend',     label: '↓ Under',       activeBg: '#D97706', activeText: '#fff', text: '#D97706' },
-                        { key: 'overspend',      label: '⚠ Over',        activeBg: '#C0004C', activeText: '#fff', text: '#C0004C' },
-                      ].map(({ key, label, activeBg, activeText, text }) => {
+                        { key: '',               label: 'All',        activeBg: '#4B4594', text: '#4B4594' },
+                        { key: 'plan_pre',       label: 'Plan Pre',   activeBg: '#4B4594', text: '#4B4594' },
+                        { key: 'screening_post', label: 'Post',       activeBg: '#4B4594', text: '#4B4594' },
+                        { key: 'final',          label: 'Final',      activeBg: '#4B4594', text: '#4B4594' },
+                        { key: 'approved',       label: '✓ OK',       activeBg: '#2FA36B', text: '#2FA36B' },
+                        { key: 'underspend',     label: '↓ Under',    activeBg: '#D97706', text: '#D97706' },
+                        { key: 'overspend',      label: '⚠ Over',     activeBg: '#C0004C', text: '#C0004C' },
+                      ].map(({ key, label, activeBg, text }) => {
                         const isActive = statusFilter === key
                         return (
                           <button key={key} type="button" onClick={() => setStatusFilter(key)}
-                            style={isActive ? { background: activeBg, color: activeText } : { color: text }}
-                            className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold transition-all
+                            style={isActive ? { background: activeBg, color: '#fff' } : { color: text }}
+                            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-all
                               ${isActive ? 'shadow-sm' : 'border border-[rgba(74,20,140,0.15)] bg-white/80 hover:bg-[#F7F2FF]'}`}
                           >{label}</button>
                         )
@@ -2089,19 +2126,16 @@ export default function App() {
                     </div>
 
                     {/* Sort + Active toggle */}
-                    <button type="button"
-                      onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
-                      className="inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]"
-                    >
+                    <button type="button" onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]">
                       <ArrowUpDown className="h-3 w-3" aria-hidden />
                       {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
                     </button>
-                    <button type="button"
-                      onClick={() => setHideNoData(v => !v)}
-                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] transition ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}
-                    >
+                    <button type="button" onClick={() => setHideNoData(v => !v)}
+                      className={`shrink-0 inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition
+                        ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}>
                       {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
-                      {hideNoData ? '7 + 5 Active' : 'All films'}
+                      {hideNoData ? '7+5' : 'All'}
                     </button>
                   </div>
 
