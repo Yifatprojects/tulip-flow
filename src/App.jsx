@@ -2016,7 +2016,7 @@ export default function App() {
                 <div className={`rounded-2xl ${brandBorder} bg-white/88 p-5 shadow-[0_24px_55px_rgba(74,20,140,0.12)] backdrop-blur-md`}
                 >
                   {/* ── Toolbar ── */}
-                  <div className="mb-5 flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5">
+                  <div className="mb-5 flex flex-wrap items-center gap-2">
 
                     {/* Title + count */}
                     <div className="flex shrink-0 items-baseline gap-1.5 mr-1">
@@ -2079,7 +2079,7 @@ export default function App() {
                       </button>
 
                       {datePickerOpen && (
-                        <div className="absolute left-0 top-full z-30 mt-1.5 w-64 rounded-xl border border-[rgba(74,20,140,0.15)] bg-white p-3 shadow-[0_12px_32px_rgba(74,20,140,0.18)]">
+                        <div className="absolute left-0 top-full z-[200] mt-1.5 w-64 rounded-xl border border-[rgba(74,20,140,0.15)] bg-white p-3 shadow-[0_12px_32px_rgba(74,20,140,0.18)]">
                           <p className="mb-2 text-[0.55rem] font-bold uppercase tracking-[0.16em] text-[#8A7BAB]">Release Date Range</p>
                           <div className="flex flex-col gap-2">
                             <label className="flex items-center gap-2">
