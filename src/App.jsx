@@ -1144,7 +1144,9 @@ export default function App() {
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef(null)
   const [lastActions, setLastActions]   = useState([])
-  const [filmsViewMode, setFilmsViewMode] = useState('card') // 'card' | 'table'
+  const [filmsViewMode, setFilmsViewMode]   = useState('card') // 'card' | 'table'
+  const [tableSortCol,  setTableSortCol]    = useState('release_date')
+  const [tableSortDir,  setTableSortDir]    = useState('asc')
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -2275,12 +2277,14 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Sort + Active toggle */}
-                    <button type="button" onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]">
-                      <ArrowUpDown className="h-3 w-3" aria-hidden />
-                      {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
-                    </button>
+                    {/* Sort button — card view only */}
+                    {filmsViewMode === 'card' && (
+                      <button type="button" onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]">
+                        <ArrowUpDown className="h-3 w-3" aria-hidden />
+                        {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
+                      </button>
+                    )}
                     <button type="button" onClick={() => setHideNoData(v => !v)}
                       className={`shrink-0 inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition
                         ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}>
@@ -2332,19 +2336,68 @@ export default function App() {
                     </ul>
                   ) : (
                     /* ── Table View ───────────────────────────────────────── */
+                    (() => {
+                      // column definitions: label, sort key, alignment
+                      const COLS = [
+                        { label: 'Film',           key: 'title_en',    align: 'left'  },
+                        { label: 'Film #',         key: 'film_number', align: 'left'  },
+                        { label: 'Release Date',   key: 'release_date',align: 'left'  },
+                        { label: 'Profit Center',  key: 'profit_center',align:'left'  },
+                        { label: 'Planned Budget', key: 'planned',     align: 'right' },
+                        { label: 'AdPub Exp.',     key: 'adpub',       align: 'right' },
+                        { label: 'Print Exp.',     key: 'print',       align: 'right' },
+                        { label: 'Status',         key: 'budget_status',align:'left'  },
+                      ]
+
+                      const handleColSort = (key) => {
+                        if (tableSortCol === key) {
+                          setTableSortDir(d => d === 'asc' ? 'desc' : 'asc')
+                        } else {
+                          setTableSortCol(key)
+                          setTableSortDir('asc')
+                        }
+                      }
+
+                      const tableRows = [...filteredMovies].sort((a, b) => {
+                        const dir = tableSortDir === 'asc' ? 1 : -1
+                        const getVal = (m) => {
+                          if (tableSortCol === 'planned')  return movieBudgetTotals[m.film_number] ?? 0
+                          if (tableSortCol === 'adpub')    return movieMarketingTotals[m.film_number] ?? 0
+                          if (tableSortCol === 'print')    return moviePrintTotals[m.film_number] ?? 0
+                          const v = m[tableSortCol] ?? ''
+                          return typeof v === 'string' ? v.toLowerCase() : v
+                        }
+                        const va = getVal(a), vb = getVal(b)
+                        if (va < vb) return -dir
+                        if (va > vb) return  dir
+                        return 0
+                      })
+
+                      return (
                     <div className="overflow-x-auto rounded-xl border border-[rgba(74,20,140,0.1)]">
                       <table className="w-full border-collapse text-left text-[12px]">
                         <thead>
                           <tr style={{ background: '#2D1B69' }}>
-                            {['Film', 'Film #', 'Release Date', 'Profit Center', 'Planned Budget', 'AdPub Exp.', 'Print Exp.', 'Status'].map(col => (
-                              <th key={col} className="px-4 py-3 text-[0.55rem] font-bold uppercase tracking-[0.16em] text-white/80 whitespace-nowrap">
-                                {col}
-                              </th>
-                            ))}
+                            {COLS.map(({ label, key, align }) => {
+                              const isActive = tableSortCol === key
+                              return (
+                                <th key={key}
+                                  onClick={() => handleColSort(key)}
+                                  className="cursor-pointer select-none px-4 py-3 text-[0.55rem] font-bold uppercase tracking-[0.16em] whitespace-nowrap transition-colors hover:bg-white/10"
+                                  style={{ textAlign: align, color: isActive ? '#ffffff' : 'rgba(255,255,255,0.65)' }}>
+                                  <span className="inline-flex items-center gap-1">
+                                    {label}
+                                    {isActive
+                                      ? <span className="text-white">{tableSortDir === 'asc' ? ' ↑' : ' ↓'}</span>
+                                      : <span className="opacity-30">↕</span>}
+                                  </span>
+                                </th>
+                              )
+                            })}
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredMovies.map((m, i) => {
+                          {tableRows.map((m, i) => {
                             const planned = movieBudgetTotals[m.film_number] ?? 0
                             const adpub   = movieMarketingTotals[m.film_number] ?? 0
                             const print   = moviePrintTotals[m.film_number] ?? 0
@@ -2427,6 +2480,8 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+                      ) // end return
+                    })() // end IIFE
                   )}
 
                 </div>
