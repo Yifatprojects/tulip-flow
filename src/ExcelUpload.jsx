@@ -1091,7 +1091,7 @@ async function executeJournalUpload(preview, mode) {
 // ─── Components ──────────────────────────────────────────────────────────────
 
 /** Trigger button — drop into any toolbar */
-export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, className, contextFilm, lockType = false }) {
+export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialType, label, subLabel, className, contextFilm, lockType = false }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -1103,8 +1103,11 @@ export function ExcelUploadButton({ onUploadSuccess, disabled = false, initialTy
         className={className ?? "inline-flex items-center gap-1.5 rounded-xl bg-[#F9B233] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4B4594] shadow-[0_10px_22px_rgba(249,178,51,0.35)] transition hover:bg-[#fbc050] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4B4594]/50 disabled:opacity-60"}
         title="Import Excel file"
       >
-        <Upload className="h-3 w-3" aria-hidden />
-        {label ?? 'Import'}
+        <Upload className="h-3 w-3 shrink-0" aria-hidden />
+        <span className="flex flex-col items-start leading-none gap-[2px]">
+          <span>{label ?? 'Import'}</span>
+          {subLabel && <span className="text-[8px] font-normal normal-case tracking-normal opacity-75">{subLabel}</span>}
+        </span>
       </button>
 
       {open && (

@@ -1753,7 +1753,11 @@ export default function App() {
                     onClick={() => { setAddMovieError(null); setAddMovieOpen(true) }}
                     className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.28)] bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
                   >
-                    <Plus className="h-3.5 w-3.5" aria-hidden /> Add New Movie
+                    <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span className="flex flex-col items-start leading-none gap-[2px]">
+                      <span>Add New Movie</span>
+                      <span className="text-[8px] font-normal normal-case tracking-normal opacity-75">הוסף סרט חדש</span>
+                    </span>
                   </button>
 
                   {/* Upload Budget */}
@@ -1761,6 +1765,7 @@ export default function App() {
                     initialType="budgets"
                     lockType={true}
                     label="Upload Budget"
+                    subLabel="העלה תקציב"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(47,163,107,0.35)] transition hover:bg-[#28915f]"
                   />
@@ -1770,6 +1775,7 @@ export default function App() {
                     initialType="journal"
                     lockType={true}
                     label="Upload Monthly PC"
+                    subLabel="העלה PC חודשי"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
                   />
