@@ -1768,7 +1768,7 @@ export default function App() {
                   >
                     <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span className="flex flex-col items-start leading-none gap-[2px]">
-                      <span>Add New Movie</span>
+                      <span>Add New Film</span>
                       <span className="text-[8px] font-normal normal-case tracking-normal opacity-75">הוסף סרט חדש</span>
                     </span>
                   </button>
@@ -2312,7 +2312,7 @@ export default function App() {
                   {filteredMovies.length === 0 ? (
                     <p className="py-6 text-center text-sm text-[#4A148C]">
                       {movies.length === 0
-                        ? 'No movies yet. Use “Add new movie” to create a title.'
+                        ? 'No films yet. Use "Add new film" to create a title.'
                         : 'No films match the current filters.'}
                     </p>
                   ) : filmsViewMode === 'card' ? (
@@ -3456,7 +3456,7 @@ export default function App() {
                 id="add-movie-title"
                 className="font-['Montserrat',sans-serif] text-lg font-bold text-[#4B4594]"
               >
-                Add new movie
+                Add new film
               </h2>
               <button
                 type="button"
@@ -3476,7 +3476,7 @@ export default function App() {
               {/* Hebrew title */}
               <div>
                 <label htmlFor="movie-name-he" className="mb-0.5 block text-xs font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                  Movie name (Hebrew)
+                  Film name (Hebrew)
                 </label>
                 <p className="mb-1.5 text-left text-[10px] text-[#8A7BAB]" lang="he">שם הסרט בעברית</p>
                 <input
@@ -3495,7 +3495,7 @@ export default function App() {
               {/* English title */}
               <div>
                 <label htmlFor="movie-name-en" className="mb-0.5 block text-xs font-semibold uppercase tracking-[0.14em] text-[#4A148C]">
-                  Movie name (English)
+                  Film name (English)
                 </label>
                 <p className="mb-1.5 text-[10px] text-[#8A7BAB]">שם הסרט באנגלית</p>
                 <input
@@ -3613,7 +3613,7 @@ export default function App() {
                   disabled={addMovieBusy}
                   className="rounded-xl bg-[#F9B233] px-4 py-2.5 text-sm font-semibold text-[#4B4594] shadow-[0_10px_22px_rgba(249,178,51,0.35)] transition hover:bg-[#fbc050] disabled:opacity-60"
                 >
-                  {addMovieBusy ? 'Saving…' : 'Save movie'}
+                  {addMovieBusy ? 'Saving…' : 'Save film'}
                 </button>
               </div>
             </form>
