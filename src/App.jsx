@@ -15,6 +15,7 @@ import { ExcelUploadButton } from './ExcelUpload'
 import { FilmsManagementModal } from './FilmsManagement'
 import { CatalogsManagementModal } from './CatalogsManagement'
 import UploadsManagementModal from './UploadsManagement'
+import BudgetUploadsManagementModal from './BudgetUploadsManagement'
 import { LoginPage } from './LoginPage'
 
 /** @typedef {import('./types/movie').Movie} Movie */
@@ -1145,7 +1146,8 @@ export default function App() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
-  const [uploadsManagerOpen, setUploadsManagerOpen]   = useState(false)
+  const [uploadsManagerOpen, setUploadsManagerOpen]         = useState(false)
+  const [budgetUploadsManagerOpen, setBudgetUploadsManagerOpen] = useState(false)
   const adminMenuRef = useRef(null)
   // Catalog-import gate: 'locked' | 'challenging' | 'unlocked'
   const [catalogImportGate, setCatalogImportGate] = useState('locked')
@@ -2088,6 +2090,12 @@ export default function App() {
                         className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
                         <History className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
                         Manage PC Uploads
+                      </button>
+                      <button type="button"
+                        onClick={() => setBudgetUploadsManagerOpen(true)}
+                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
+                        <BookOpen className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
+                        Manage Budget Uploads
                       </button>
                     </div>
                   </div>
@@ -3237,6 +3245,10 @@ export default function App() {
 
       {uploadsManagerOpen && (
         <UploadsManagementModal onClose={() => setUploadsManagerOpen(false)} />
+      )}
+
+      {budgetUploadsManagerOpen && (
+        <BudgetUploadsManagementModal onClose={() => setBudgetUploadsManagerOpen(false)} />
       )}
 
       {filmsManagerOpen && (
