@@ -1895,13 +1895,13 @@ export default function App() {
                 .slice(0, 5)
 
               return (
-                <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className="mb-8 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
 
-                  {/* ══ COL 1: Quick Actions 2×2 + Last PC Upload ══ */}
-                  <div className="flex flex-col gap-4">
+                  {/* ══ COL 1: Quick Actions + Last PC Upload (full height) ══ */}
+                  <div className="flex h-full min-h-0 flex-col gap-6">
 
-                    {/* Quick Actions — 2×2 tile grid */}
-                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                    {/* Quick Actions — compact grid */}
+                    <div className="shrink-0 rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
                       <div className="mb-3 flex items-center gap-2">
                         <Settings className="h-4 w-4 text-[#4B4594]" aria-hidden />
                         <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Quick Actions</p>
@@ -1926,20 +1926,31 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Last PC Upload per Studio */}
-                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                      <div className="mb-3 flex items-center gap-2">
+                    {/* Last PC Upload per Studio — grows to match column height */}
+                    <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
+                      <div className="mb-3 flex shrink-0 items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
                         <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last PC Upload per Studio</p>
                       </div>
                       {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
-                        <div className="space-y-2">
-                          {lastUpdateInfo.map(({ studio, period }) => (
-                            <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
+                        <div className="flex min-h-0 flex-1 flex-col gap-2">
+                          {Array.from({ length: 5 }, (_, i) => lastUpdateInfo[i] ?? null).map((row, idx) => {
+                            if (!row) {
+                              return (
+                                <div key={`pc-pad-${idx}`} className="min-h-0 flex-1 basis-0" aria-hidden />
+                              )
+                            }
+                            const { studio, period } = row
+                            return (
+                            <div
+                              key={studio}
+                              className="flex min-h-0 flex-1 basis-0 items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2"
+                            >
                               <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
                               <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ) : (
                         <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
@@ -1948,27 +1959,33 @@ export default function App() {
 
                   </div>{/* end col 1 */}
 
-                  {/* ══ COL 2: Coming Soon ══ */}
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                    <div className="mb-3 flex items-center gap-2">
+                  {/* ══ COL 2: Coming Soon (defines row height) ══ */}
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex h-full min-h-0 flex-col rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
+                    <div className="mb-3 flex shrink-0 items-center gap-2">
                       <Calendar className="h-4 w-4 text-[#E65100]" aria-hidden />
                       <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Coming Soon</p>
                     </div>
                     {comingSoon.length === 0 ? (
                       <p className="text-sm text-[#C0B8D8]">No upcoming releases found.</p>
                     ) : (
-                      <ul className="space-y-1">
-                        {comingSoon.map(m => {
+                      <ul className="flex min-h-0 flex-1 flex-col divide-y divide-[rgba(74,20,140,0.1)] border-t border-[rgba(74,20,140,0.1)]">
+                        {Array.from({ length: 5 }, (_, i) => comingSoon[i] ?? null).map((m, idx) => {
+                          if (!m) {
+                            return (
+                              <li key={`coming-pad-${idx}`} className="min-h-0 flex-1 basis-0" aria-hidden />
+                            )
+                          }
                           const d = new Date(m.release_date)
                           const diff = Math.round((d - today) / 86400000)
                           const hasBudget = (movieBudgetTotals[m.film_number] ?? 0) > 0
                           const daysLabel = diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : `in ${diff}d`
                           return (
-                            <li key={m.film_number}>
+                            <li key={m.film_number} className="flex min-h-[52px] flex-1 basis-0 flex-col justify-center">
                               <button
                                 type="button"
                                 onClick={() => setSelectedMovie(m)}
-                                className="group grid w-full grid-cols-[1fr_auto] items-center gap-x-3 rounded-xl border border-transparent px-3 py-2 text-left transition hover:border-[rgba(74,20,140,0.12)] hover:bg-[#F7F4FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
+                                className="group grid h-full min-h-[3rem] w-full grid-cols-[1fr_auto] items-center gap-x-3 px-3 py-2 text-left transition hover:bg-[#F7F4FB]/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
                               >
                                 {/* Left: titles + budget status */}
                                 <div className="min-w-0">
@@ -2007,19 +2024,30 @@ export default function App() {
                         })}
                       </ul>
                     )}
+                    </div>
                   </div>
 
-                  {/* ══ COL 3: Last Actions feed ══ */}
-                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                    <div className="mb-3 flex items-center gap-2">
+                  {/* ══ COL 3: Last Actions feed (5 items, equal vertical share) ══ */}
+                  <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex h-full min-h-0 flex-col rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
+                    <div className="mb-3 flex shrink-0 items-center gap-2">
                       <Clock className="h-4 w-4 text-[#7B52AB]" aria-hidden />
                       <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Actions</p>
                     </div>
                     {lastActions.length === 0 ? (
                       <p className="text-sm text-[#C0B8D8]">No actions recorded yet.</p>
                     ) : (
-                      <div className="space-y-2">
-                        {lastActions.map(action => {
+                      <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+                        {Array.from({ length: 5 }, (_, i) => lastActions[i] ?? null).map((action, i) => {
+                          if (!action) {
+                            return (
+                              <div
+                                key={`last-action-pad-${i}`}
+                                className="min-h-0 flex-1 basis-0"
+                                aria-hidden
+                              />
+                            )
+                          }
                           const cfgMap = {
                             status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
                             budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Budget uploaded for' },
@@ -2031,44 +2059,50 @@ export default function App() {
                           }
                           const cfg = cfgMap[action.action_type] ?? { Icon: Clock, iconColor: '#8A7BAB', iconBg: '#F7F4FB', label: null }
                           return (
-                            <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
-                              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
-                                   style={{ background: cfg.iconBg }}>
-                                <cfg.Icon className="h-3 w-3" style={{ color: cfg.iconColor }} aria-hidden />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[11px] leading-snug text-[#2D1B69]">
-                                  {action.action_type === 'status_change'
-                                    ? (() => {
-                                        const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
-                                        return (
-                                          <>
-                                            Status updated
-                                            {action.film_title && <> for <strong className="font-semibold">{action.film_title}</strong></>}
-                                            {arrow && <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>}
-                                          </>
-                                        )
-                                      })()
-                                    : (action.action_type === 'catalog_edit' || action.action_type === 'pc_upload_deleted')
-                                    ? <span className="text-[#5B4B7A]">{action.description}</span>
-                                    : <>
-                                        {cfg.label}
-                                        {action.film_title
-                                          ? <> <strong className="font-semibold">{action.film_title}</strong></>
-                                          : action.description && !cfg.label
-                                            ? <span className="text-[#5B4B7A]"> {action.description}</span>
-                                            : null
-                                        }
-                                      </>
-                                  }
-                                </p>
-                                <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
+                            <div
+                              key={action.id}
+                              className="flex min-h-0 flex-1 basis-0 items-stretch"
+                            >
+                              <div className="flex h-full min-h-0 w-full items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
+                                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                                     style={{ background: cfg.iconBg }}>
+                                  <cfg.Icon className="h-3 w-3" style={{ color: cfg.iconColor }} aria-hidden />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[11px] leading-snug text-[#2D1B69]">
+                                    {action.action_type === 'status_change'
+                                      ? (() => {
+                                          const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
+                                          return (
+                                            <>
+                                              Status updated
+                                              {action.film_title && <> for <strong className="font-semibold">{action.film_title}</strong></>}
+                                              {arrow && <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>}
+                                            </>
+                                          )
+                                        })()
+                                      : (action.action_type === 'catalog_edit' || action.action_type === 'pc_upload_deleted')
+                                      ? <span className="text-[#5B4B7A]">{action.description}</span>
+                                      : <>
+                                          {cfg.label}
+                                          {action.film_title
+                                            ? <> <strong className="font-semibold">{action.film_title}</strong></>
+                                            : action.description && !cfg.label
+                                              ? <span className="text-[#5B4B7A]"> {action.description}</span>
+                                              : null
+                                          }
+                                        </>
+                                    }
+                                  </p>
+                                  <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
+                                </div>
                               </div>
                             </div>
                           )
                         })}
                       </div>
                     )}
+                  </div>
                   </div>
 
                 </div>
