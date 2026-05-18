@@ -2277,14 +2277,6 @@ export default function App() {
                       })}
                     </div>
 
-                    {/* Sort button — card view only */}
-                    {filmsViewMode === 'card' && (
-                      <button type="button" onClick={() => setProgressSort(s => s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none')}
-                        className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#4A148C] transition hover:bg-[#F7F2FF]">
-                        <ArrowUpDown className="h-3 w-3" aria-hidden />
-                        {progressSort === 'none' ? 'Sort' : progressSort === 'desc' ? 'High%' : 'Low%'}
-                      </button>
-                    )}
                     <button type="button" onClick={() => setHideNoData(v => !v)}
                       className={`shrink-0 inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition
                         ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}>
