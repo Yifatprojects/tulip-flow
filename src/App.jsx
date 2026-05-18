@@ -1775,7 +1775,7 @@ export default function App() {
                     initialType="journal"
                     lockType={true}
                     label="Upload Monthly PC"
-                    subLabel="העלה PC חודשי"
+                    subLabel="העלאת מרכז רווח חודשי"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
                   />
