@@ -133,6 +133,14 @@ export default function BudgetUploadsManagementModal({ onClose }) {
         .eq('film_number', batch.film_number)
       if (error) throw error
       showToast('success', `Budget for "${batch.title}" deleted successfully.`)
+      try {
+        await supabase.from('activity_log').insert({
+          action_type: 'budget_upload_deleted',
+          description: `Budget deleted`,
+          film_title:  batch.title,
+          film_number: batch.film_number,
+        })
+      } catch (_) { /* non-critical */ }
       await load()
     } catch (err) {
       console.error('[BudgetUploadsManager] delete error', err)

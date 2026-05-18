@@ -191,7 +191,13 @@ export default function UploadsManagementModal({ onClose }) {
       if (batch.incomeCount  > 0) await delFrom('rental_transactions')
 
       showToast('success', `Upload batch deleted successfully — ${batch.monthLabel} · ${batch.studio}`)
-      await load()   // refresh list
+      try {
+        await supabase.from('activity_log').insert({
+          action_type: 'pc_upload_deleted',
+          description: `PC upload deleted: ${batch.monthLabel} · ${batch.studio}`,
+        })
+      } catch (_) { /* non-critical */ }
+      await load()
     } catch (err) {
       console.error('[UploadsManager] delete error', err)
       showToast('error', `Deletion failed: ${err.message}`)

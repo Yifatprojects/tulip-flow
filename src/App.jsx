@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
   ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2, Eye, EyeOff,
-  Film, History, Loader2, LogOut, Plus, Receipt, RefreshCw, Save, Search,
-  Settings, TrendingUp, UploadCloud, X,
+  Film, History, ListChecks, Loader2, LogOut, Plus, PlusCircle, Receipt,
+  RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
+  UploadCloud, X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
@@ -1696,6 +1697,13 @@ export default function App() {
       }
       const { data, error } = await supabase.from('films').insert(payload).select().single()
       if (error) throw error
+      void logActivity(
+        'movie_added',
+        'New movie added',
+        payload.title_en || payload.title_he || '',
+        data?.film_number ? String(data.film_number) : null,
+      )
+      void fetchLastActions()
       await refreshMovies()
       setAddMovieOpen(false)
       setNewMovieHebrew('')
@@ -2007,15 +2015,16 @@ export default function App() {
                         <div className="space-y-2">
                           {lastActions.map(action => {
                             // icon + palette per action type
-                            const cfg = action.action_type === 'status_change'
-                              ? { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF',
-                                  label: `Status updated${action.film_title ? ` for` : ''}` }
-                              : action.action_type === 'budget_upload_per_film'
-                              ? { Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA',
-                                  label: 'Budget uploaded for' }
-                              : /* budget_edit */
-                                { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED',
-                                  label: 'Budget edited for' }
+                            const cfgMap = {
+                              status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
+                              budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Budget uploaded for' },
+                              budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Budget edited for' },
+                              movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New movie added' },
+                              catalog_edit:          { Icon: ListChecks,  iconColor: '#2563EB', iconBg: '#EFF6FF', label: null },
+                              pc_upload_deleted:     { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: null },
+                              budget_upload_deleted: { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: 'Budget deleted for' },
+                            }
+                            const cfg = cfgMap[action.action_type] ?? { Icon: Clock, iconColor: '#8A7BAB', iconBg: '#F7F4FB', label: null }
 
                             return (
                               <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
@@ -2027,25 +2036,25 @@ export default function App() {
                                   <p className="text-[11px] leading-snug text-[#2D1B69]">
                                     {action.action_type === 'status_change'
                                       ? (() => {
-                                          // description is "Status updated: Plan Pre → Screening Post"
                                           const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
                                           return (
                                             <>
                                               Status updated
-                                              {action.film_title && (
-                                                <> for <strong className="font-semibold">{action.film_title}</strong></>
-                                              )}
-                                              {arrow && (
-                                                <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>
-                                              )}
+                                              {action.film_title && <> for <strong className="font-semibold">{action.film_title}</strong></>}
+                                              {arrow && <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>}
                                             </>
                                           )
                                         })()
+                                      : (action.action_type === 'catalog_edit' || action.action_type === 'pc_upload_deleted')
+                                      ? <span className="text-[#5B4B7A]">{action.description}</span>
                                       : <>
                                           {cfg.label}
-                                          {action.film_title && (
-                                            <> <strong className="font-semibold">{action.film_title}</strong></>
-                                          )}
+                                          {action.film_title
+                                            ? <> <strong className="font-semibold">{action.film_title}</strong></>
+                                            : action.description && !cfg.label
+                                              ? <span className="text-[#5B4B7A]"> {action.description}</span>
+                                              : null
+                                          }
                                         </>
                                     }
                                   </p>

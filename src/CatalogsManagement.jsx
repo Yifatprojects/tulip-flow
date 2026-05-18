@@ -5,6 +5,13 @@ import {
 } from 'lucide-react'
 import { supabase } from './lib/supabaseClient'
 
+// ── Activity log helper ───────────────────────────────────────────────────────
+async function logAct(action_type, description) {
+  try {
+    await supabase.from('activity_log').insert({ action_type, description })
+  } catch (_) { /* non-critical */ }
+}
+
 // ── Shared constants ───────────────────────────────────────────────────────────
 const EXPENSE_CATEGORY_OPTIONS = ['מדיה', 'פרינט', 'אחר']
 const RENTAL_CATEGORY_OPTIONS  = ['Digital', 'Physical', 'TV', 'Other Format', 'Independent']
@@ -133,6 +140,7 @@ function ExpensesCatalog() {
     if (error) { showToast('error', `Save failed: ${error.message}`); return }
     setRows(prev => prev.map(r => r.priority_code === draft.priority_code ? { ...draft } : r))
     setEditingId(null)
+    void logAct('catalog_edit', `Expenses catalog edited: ${draft.expense_description || draft.priority_code}`)
     showToast('success', 'Row updated successfully.')
   }
 
@@ -157,16 +165,20 @@ function ExpensesCatalog() {
     setRows(prev => [...prev, ...(data ?? [])])
     setNewRow(emptyExpense())
     setAdding(false)
+    void logAct('catalog_edit', `Expenses catalog: new item added (${newRow.expense_description.trim()})`)
     showToast('success', 'New expense item added.')
   }
 
   async function confirmDelete() {
     setDeleting(true)
+    const deletedCode = deleteConfirm
+    const deletedRow  = rows.find(r => r.priority_code === deletedCode)
     const { error } = await supabase.from('expenses').delete().eq('priority_code', deleteConfirm)
     setDeleting(false)
     if (error) { showToast('error', `Delete failed: ${error.message}`); setDeleteConfirm(null); return }
     setRows(prev => prev.filter(r => r.priority_code !== deleteConfirm))
     setDeleteConfirm(null)
+    void logAct('catalog_edit', `Expenses catalog: item deleted (${deletedRow?.expense_description || deletedCode})`)
     showToast('success', 'Item deleted.')
   }
 
@@ -396,6 +408,7 @@ function RentalsCatalog() {
     if (error) { showToast('error', `Save failed: ${error.message}`); return }
     setRows(prev => prev.map(r => r.priority_code === draft.priority_code ? { ...draft } : r))
     setEditingId(null)
+    void logAct('catalog_edit', `Rentals catalog edited: ${draft.income_description || draft.priority_code}`)
     showToast('success', 'Row updated successfully.')
   }
 
@@ -419,16 +432,20 @@ function RentalsCatalog() {
     setRows(prev => [...prev, ...(data ?? [])])
     setNewRow(emptyRental())
     setAdding(false)
+    void logAct('catalog_edit', `Rentals catalog: new item added (${newRow.income_description.trim()})`)
     showToast('success', 'New rental item added.')
   }
 
   async function confirmDelete() {
     setDeleting(true)
+    const deletedCode = deleteConfirm
+    const deletedRow  = rows.find(r => r.priority_code === deletedCode)
     const { error } = await supabase.from('rentals').delete().eq('priority_code', deleteConfirm)
     setDeleting(false)
     if (error) { showToast('error', `Delete failed: ${error.message}`); setDeleteConfirm(null); return }
     setRows(prev => prev.filter(r => r.priority_code !== deleteConfirm))
     setDeleteConfirm(null)
+    void logAct('catalog_edit', `Rentals catalog: item deleted (${deletedRow?.income_description || deletedCode})`)
     showToast('success', 'Item deleted.')
   }
 
