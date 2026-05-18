@@ -825,7 +825,7 @@ function DashboardSummaryRow({ studioOptions = [] }) {
               {loading ? (
                 <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
               ) : (
-                <p className="font-['Montserrat',sans-serif] text-xl font-extrabold tabular-nums" style={{ color }}>
+                <p className="text-center font-['Montserrat',sans-serif] text-xl font-extrabold tabular-nums" style={{ color }}>
                   {formatCurrency(value)}
                 </p>
               )}
