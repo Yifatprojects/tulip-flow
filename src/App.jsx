@@ -2081,7 +2081,7 @@ export default function App() {
                         onClick={() => setUploadsManagerOpen(true)}
                         className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
                         <History className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage Uploads
+                        Manage PC Uploads
                       </button>
                     </div>
                   </div>
