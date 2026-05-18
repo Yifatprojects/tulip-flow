@@ -1979,7 +1979,7 @@ export default function App() {
                     <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
                       <div className="mb-3 flex items-center gap-2">
                         <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
-                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Update by Studio</p>
+                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last PC Upload per Studio</p>
                       </div>
                       {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
                         <div className="space-y-2">
