@@ -1,7 +1,7 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
-  ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2, Eye, EyeOff,
+  ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2,
   Film, History, LayoutGrid, List, ListChecks, Loader2, LogOut, Plus, PlusCircle,
   Receipt, RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
   UploadCloud, X,
@@ -23,6 +23,9 @@ import { LoginPage } from './LoginPage'
 
 /** Fixed studio name options — shared across the app */
 const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Independent']
+
+/** Dashboard Last Actions: Supabase fetch limit = visible row slots (keep in sync). */
+const LAST_ACTIONS_FEED_LIMIT = 8
 
 /** Normalize legacy DB value 'Other' → display as 'Independent' */
 const normalizeStudio = (s) => (s === 'Other' ? 'Independent' : s ?? '')
@@ -88,6 +91,32 @@ function formatReleaseDate(value) {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   }
   return null
+}
+
+/** Parse release_date like {@link formatReleaseDate}; local calendar semantics for YYYY-MM-DD. */
+function parseReleaseLocalDate(value) {
+  if (value == null || value === '') return null
+  const s = String(value).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, day] = s.split('-').map(Number)
+    const d = new Date(y, m - 1, day)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  let d = new Date(value)
+  if (!Number.isNaN(d.getTime())) return d
+  const match = String(value).match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/)
+  if (match) {
+    let [, day, month, year] = match.map(Number)
+    if (year < 100) year += 2000
+    d = new Date(year, month - 1, day)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  return null
+}
+
+function releaseCalendarYear(value) {
+  const d = parseReleaseLocalDate(value)
+  return d ? d.getFullYear() : null
 }
 
 /** Returns a human-readable relative time string, e.g. "5 min ago", "2 hrs ago" */
@@ -374,7 +403,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
 
       {/* Spent / progress label */}
       <div className="mb-2 flex items-center justify-between text-[10px] text-[#8A7BAB]">
-        <span>Spent <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
+        <span>Adpub expenses <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
         <span
           className="font-semibold tabular-nums"
           style={{ color: isOverBudget ? '#C0004C' : isAt80 ? '#D97706' : '#2FA36B' }}
@@ -392,7 +421,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
           </p>
         </div>
         <div className="rounded-lg bg-[#FFF1F3] px-2 py-1.5">
-          <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#BE123C]">Print Spent</p>
+          <p className="text-[8px] font-bold tracking-[0.14em] text-[#BE123C]">Print expenses</p>
           <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#BE123C]">
             {formatCurrency(printSpent)}
           </p>
@@ -1113,7 +1142,6 @@ export default function App() {
   const [studioFilter, setStudioFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('') // '' | 'plan_pre' | 'screening_post' | 'final' | 'approved' | 'overspend' | 'underspend'
   const [progressSort, setProgressSort] = useState('none')
-  const [hideNoData, setHideNoData] = useState(true)
   const [dateFrom, setDateFrom]         = useState('')
   const [dateTo, setDateTo]             = useState('')
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -1357,7 +1385,7 @@ export default function App() {
         .from('activity_log')
         .select('id, action_type, description, film_title, created_at')
         .order('created_at', { ascending: false })
-        .limit(5)
+        .limit(LAST_ACTIONS_FEED_LIMIT)
       setLastActions(data ?? [])
     } catch (err) {
       console.warn('[activityLog] fetch failed:', err)
@@ -1524,33 +1552,16 @@ export default function App() {
 
     let base
     if (isSearching) {
+      // Server-side search returns any year (limited columns; enough for list + modal fetch)
       base = [...searchResults]
-    } else if (hideNoData) {
-      // ── "Active Only" mode: 7 most-recently-released + 5 soonest-upcoming ──
-      const now = new Date(); now.setHours(0, 0, 0, 0)
-
-      const released = all
-        .filter(m => m.release_date && new Date(m.release_date) < now)
-        .sort((a, b) => new Date(b.release_date) - new Date(a.release_date)) // most recent first
-
-      const upcoming = all
-        .filter(m => m.release_date && new Date(m.release_date) >= now)
-        .sort((a, b) => new Date(a.release_date) - new Date(b.release_date)) // closest first
-
-      // Fill up to 12 if one group is short
-      const TARGET = 12, RELEASED_WANT = 7, UPCOMING_WANT = 5
-      let relCount = Math.min(released.length, RELEASED_WANT)
-      let upCount  = Math.min(upcoming.length, UPCOMING_WANT)
-      const leftover = TARGET - relCount - upCount
-      if (leftover > 0) {
-        if (released.length > relCount) relCount = Math.min(released.length, relCount + leftover)
-        else if (upcoming.length > upCount) upCount = Math.min(upcoming.length, upCount + leftover)
-      }
-
-      // Released descending, then upcoming ascending
-      base = [...released.slice(0, relCount), ...upcoming.slice(0, upCount)]
     } else {
-      base = [...all]
+      const yNow = new Date().getFullYear()
+      base = all.filter((m) => releaseCalendarYear(m.release_date) === yNow)
+      base.sort((a, b) => {
+        const ta = parseReleaseLocalDate(a.release_date)?.getTime() ?? Number.POSITIVE_INFINITY
+        const tb = parseReleaseLocalDate(b.release_date)?.getTime() ?? Number.POSITIVE_INFINITY
+        return ta - tb
+      })
     }
 
     if (studioFilter !== '') {
@@ -1588,7 +1599,7 @@ export default function App() {
     return base
   }, [
     movies, searchResults, isSearching, studioFilter, statusFilter, progressSort,
-    hideNoData, dateFrom, dateTo, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
+    dateFrom, dateTo, movieBudgetTotals, movieActualTotals, movieIncomeTotals,
     getFilmPerfStatus,
   ])
 
@@ -1599,6 +1610,11 @@ export default function App() {
       if (tableSortCol === 'planned') return movieBudgetTotals[m.film_number] ?? 0
       if (tableSortCol === 'adpub') return movieMarketingTotals[m.film_number] ?? 0
       if (tableSortCol === 'print') return moviePrintTotals[m.film_number] ?? 0
+      if (tableSortCol === 'budget_status') {
+        const perf = getFilmPerfStatus(m)
+        if (perf === 'overspend' || perf === 'underspend') return perf
+        return (m.budget_status || 'plan_pre').toLowerCase()
+      }
       const v = m[tableSortCol] ?? ''
       return typeof v === 'string' ? v.toLowerCase() : v
     }
@@ -1608,7 +1624,7 @@ export default function App() {
       if (va > vb) return dir
       return 0
     })
-  }, [filteredMovies, tableSortCol, tableSortDir, movieBudgetTotals, movieMarketingTotals, moviePrintTotals])
+  }, [filteredMovies, tableSortCol, tableSortDir, movieBudgetTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
 
   const exportActiveFilmsTableToExcel = useCallback(() => {
     const statusLabels = {
@@ -1624,6 +1640,11 @@ export default function App() {
       const adpub = movieMarketingTotals[m.film_number] ?? 0
       const print = moviePrintTotals[m.film_number] ?? 0
       const pc = [m.profit_center, m.profit_center_2].filter(Boolean).join(' | ') || '—'
+      const perf = getFilmPerfStatus(m)
+      let statusCell
+      if (perf === 'overspend') statusCell = statusLabels.overspend
+      else if (perf === 'underspend') statusCell = statusLabels.underspend
+      else statusCell = statusLabels[m.budget_status || 'plan_pre'] ?? '—'
       return {
         'Film (English)': m.title_en || '',
         'Film (Hebrew)': m.title_he || '',
@@ -1633,7 +1654,7 @@ export default function App() {
         'Planned Budget': planned,
         'AdPub Expenses': adpub,
         'Print Expenses': print,
-        'Status': statusLabels[m.budget_status] ?? '—',
+        'Status': statusCell,
       }
     })
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -1641,7 +1662,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
     const stamp = new Date().toISOString().slice(0, 10)
     XLSX.writeFile(wb, `active_films_${stamp}.xlsx`)
-  }, [sortedActiveFilmsTableRows, movieBudgetTotals, movieMarketingTotals, moviePrintTotals])
+  }, [sortedActiveFilmsTableRows, movieBudgetTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
 
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
 
@@ -1795,7 +1816,7 @@ export default function App() {
                     <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span className="flex flex-col items-start leading-none gap-[2px]">
                       <span>Add New Film</span>
-                      <span className="text-[8px] font-normal normal-case tracking-normal opacity-75">הוסף סרט חדש</span>
+                      <span className="text-[8px] font-normal normal-case tracking-normal opacity-75">הוספת סרט חדש</span>
                     </span>
                   </button>
 
@@ -1804,7 +1825,7 @@ export default function App() {
                     initialType="budgets"
                     lockType={true}
                     label="Upload Budget"
-                    subLabel="העלה תקציב"
+                    subLabel="העלאת תקציב"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(47,163,107,0.35)] transition hover:bg-[#28915f]"
                   />
@@ -2078,9 +2099,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* ══ COL 3: Last Actions feed (5 items, equal vertical share) ══ */}
+                  {/* ══ COL 3: Last Actions ══ */}
                   <div className="flex h-full min-h-0 flex-col">
-                  <div className="flex h-full min-h-0 flex-col rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
+                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white/90 p-5 shadow-[0_8px_28px_rgba(74,20,140,0.08)] backdrop-blur-md">
                     <div className="mb-3 flex shrink-0 items-center gap-2">
                       <Clock className="h-4 w-4 text-[#7B52AB]" aria-hidden />
                       <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Actions</p>
@@ -2088,8 +2109,8 @@ export default function App() {
                     {lastActions.length === 0 ? (
                       <p className="text-sm text-[#C0B8D8]">No actions recorded yet.</p>
                     ) : (
-                      <div className="flex min-h-0 flex-1 flex-col gap-1.5">
-                        {Array.from({ length: 5 }, (_, i) => lastActions[i] ?? null).map((action, i) => {
+                      <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain">
+                        {Array.from({ length: LAST_ACTIONS_FEED_LIMIT }, (_, i) => lastActions[i] ?? null).map((action, i) => {
                           if (!action) {
                             return (
                               <div
@@ -2242,7 +2263,11 @@ export default function App() {
                     <select
                       value={studioFilterOptions.includes(studioFilter) ? studioFilter : ''}
                       onChange={(e) => setStudioFilter(e.target.value)}
-                      className={`shrink-0 rounded-lg ${brandBorder} bg-white/95 px-2 py-1.5 text-[11px] font-medium text-[#5B4B7A] shadow-sm outline-none transition focus:border-[#4B4594]`}
+                      aria-label="Studio filter"
+                      className={`shrink-0 rounded-lg border px-2.5 py-1.5 text-[11px] shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-[#4B4594]/35
+                        ${studioFilter !== '' && studioFilterOptions.includes(studioFilter)
+                          ? 'border-[#4B4594] bg-[#4B4594] font-semibold text-white'
+                          : `${brandBorder} bg-white/95 font-medium text-[#5B4B7A] hover:bg-[#F7F2FF] focus:border-[#4B4594]`}`}
                     >
                       <option value="">All Studios</option>
                       {studioFilterOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
@@ -2321,13 +2346,6 @@ export default function App() {
                       })}
                     </div>
 
-                    <button type="button" onClick={() => setHideNoData(v => !v)}
-                      className={`shrink-0 inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition
-                        ${hideNoData ? 'border-[#4B4594] bg-[#4B4594] text-white' : 'border-[rgba(74,20,140,0.2)] bg-white/95 text-[#4A148C] hover:bg-[#F7F2FF]'}`}>
-                      {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
-                      {hideNoData ? 'Active only' : 'All films'}
-                    </button>
-
                     <div className="ml-auto flex shrink-0 items-center gap-2">
                       {filmsViewMode === 'table' && filteredMovies.length > 0 && (
                         <button
@@ -2362,7 +2380,11 @@ export default function App() {
                     <p className="py-6 text-center text-sm text-[#4A148C]">
                       {movies.length === 0
                         ? 'No films yet. Use "Add new film" to create a title.'
-                        : 'No films match the current filters.'}
+                        : isSearching
+                          ? 'No films match your search.'
+                          : (studioFilter || statusFilter || dateFrom || dateTo)
+                            ? 'No films match the current filters.'
+                            : `No films scheduled for ${new Date().getFullYear()}. Use search to open titles from other years.`}
                     </p>
                   ) : filmsViewMode === 'card' ? (
                     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -2392,7 +2414,7 @@ export default function App() {
                         { label: 'Release Date',   key: 'release_date',align: 'left'  },
                         { label: 'Profit Center',  key: 'profit_center',align:'left'  },
                         { label: 'Planned Budget', key: 'planned',     align: 'right' },
-                        { label: 'AdPub Exp.',     key: 'adpub',       align: 'right' },
+                        { label: 'AdPub Expenses', key: 'adpub',       align: 'right' },
                         { label: 'Print Exp.',     key: 'print',       align: 'right' },
                         { label: 'Status',         key: 'budget_status',align:'left'  },
                       ]
@@ -2420,7 +2442,7 @@ export default function App() {
                                   onClick={() => handleColSort(key)}
                                   className="cursor-pointer select-none px-4 py-3 text-[0.55rem] font-bold uppercase tracking-[0.16em] whitespace-nowrap transition-colors hover:bg-white/10"
                                   style={{ textAlign: align, color: isActive ? '#ffffff' : 'rgba(255,255,255,0.65)' }}>
-                                  <span className="inline-flex items-center gap-1">
+                                  <span className={`flex w-full items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
                                     {label}
                                     {isActive
                                       ? <span className="text-white">{tableSortDir === 'asc' ? ' ↑' : ' ↓'}</span>
@@ -2445,7 +2467,12 @@ export default function App() {
                               underspend:     { label: '↓ Under',  bg: '#FEF3C7', color: '#D97706' },
                               overspend:      { label: '⚠ Over',   bg: '#FEE2E2', color: '#B91C1C' },
                             }
-                            const sc = statusCfg[m.budget_status] ?? { label: '—', bg: '#F7F4FB', color: '#8A7BAB' }
+                            const perf = getFilmPerfStatus(m)
+                            const effectiveBudgetStatus = m.budget_status || 'plan_pre'
+                            const sc =
+                              perf === 'overspend' ? statusCfg.overspend
+                              : perf === 'underspend' ? statusCfg.underspend
+                              : statusCfg[effectiveBudgetStatus] ?? { label: '—', bg: '#F7F4FB', color: '#8A7BAB' }
                             return (
                               <tr key={m.film_number}
                                 onClick={() => setSelectedMovie(m)}
@@ -2492,9 +2519,23 @@ export default function App() {
                                   {fmtCur(planned)}
                                 </td>
 
-                                {/* AdPub expenses */}
-                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#C0392B]">
-                                  {fmtCur(adpub)}
+                                {/* AdPub expenses — stacked amount + used % */}
+                                <td className="px-4 py-3 align-middle">
+                                  {(() => {
+                                    const rawRatio = planned > 0 ? (adpub / planned) * 100 : adpub > 0 ? 100 : 0
+                                    const usedLabel =
+                                      planned > 0 || adpub > 0 ? `${rawRatio.toFixed(0)}% used` : '—'
+                                    return (
+                                      <div className="flex flex-col items-end justify-center font-['JetBrains_Mono',ui-monospace,monospace]">
+                                        <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#2D1B69]">
+                                          {fmtCur(adpub)}
+                                        </span>
+                                        <span className="whitespace-nowrap pt-0.5 text-xs tabular-nums text-slate-400">
+                                          {usedLabel}
+                                        </span>
+                                      </div>
+                                    )
+                                  })()}
                                 </td>
 
                                 {/* Print expenses */}
@@ -3073,24 +3114,12 @@ export default function App() {
                   const addSection = (label, groups) => {
                     if (groups.length === 0) return
                     rows.push({ Category: label, 'Item Name': '', Vendor: '', 'Planned (₪)': '', 'Actual (₪)': '', 'Variance (₪)': '' })
-                    for (const [groupKey, { code, rows: budgetRows }] of groups) {
-                      const groupBudget  = budgetRows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
-                      const groupActual  = actualByCode[groupKey] ?? 0
-                      const groupVar     = groupBudget - groupActual
-                      // Summary row for the group
-                      rows.push({
-                        Category:       '',
-                        'Item Name':    code || 'No Code',
-                        Vendor:         '',
-                        'Planned (₪)':  groupBudget,
-                        'Actual (₪)':   groupActual || '',
-                        'Variance (₪)': groupVar,
-                      })
-                      // Child rows
+                    for (const [, { code, rows: budgetRows }] of groups) {
+                      // Only detail (line-item) rows — no group summary row to avoid double-counting planned totals
                       for (const r of budgetRows) {
                         rows.push({
-                          Category:       '',
-                          'Item Name':    `  ${r.categoryName}`,
+                          Category:       code || 'No Code',
+                          'Item Name':    r.categoryName || '',
                           Vendor:         r.vendorName || '',
                           'Planned (₪)':  r.budget,
                           'Actual (₪)':   '',
