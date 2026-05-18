@@ -1765,11 +1765,11 @@ export default function App() {
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(47,163,107,0.35)] transition hover:bg-[#28915f]"
                   />
 
-                  {/* Upload Monthly Expenses/Rentals */}
+                  {/* Upload Monthly PC */}
                   <ExcelUploadButton
                     initialType="journal"
                     lockType={true}
-                    label="Upload Monthly Expenses/Rentals"
+                    label="Upload Monthly PC"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#4B4594] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(75,69,148,0.35)] transition hover:bg-[#5a529f]"
                   />
