@@ -411,7 +411,7 @@ const TYPE_CONFIG = {
   },
 
   journal: {
-    label: 'Journal',
+    label: 'PC',
     table: null, // smart-routed — no single table
     icon: BookOpen,
     color: '#4B4594',
