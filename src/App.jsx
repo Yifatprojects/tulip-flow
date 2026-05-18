@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
   ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2, Eye, EyeOff,
-  Film, History, ListChecks, Loader2, LogOut, Plus, PlusCircle, Receipt,
-  RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
+  Film, History, LayoutGrid, List, ListChecks, Loader2, LogOut, Plus, PlusCircle,
+  Receipt, RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
   UploadCloud, X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -1144,6 +1144,7 @@ export default function App() {
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef(null)
   const [lastActions, setLastActions]   = useState([])
+  const [filmsViewMode, setFilmsViewMode] = useState('card') // 'card' | 'table'
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -2286,6 +2287,22 @@ export default function App() {
                       {hideNoData ? <Eye className="h-3 w-3" aria-hidden /> : <EyeOff className="h-3 w-3" aria-hidden />}
                       {hideNoData ? 'Active only' : 'All films'}
                     </button>
+
+                    {/* View toggle */}
+                    <div className="ml-auto shrink-0 flex items-center rounded-lg border border-[rgba(74,20,140,0.18)] bg-white/95 p-0.5 shadow-sm">
+                      <button type="button"
+                        onClick={() => setFilmsViewMode('card')}
+                        title="Card view"
+                        className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'card' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
+                        <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                      <button type="button"
+                        onClick={() => setFilmsViewMode('table')}
+                        title="Table view"
+                        className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'table' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
+                        <List className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
                   </div>
 
                   {filteredMovies.length === 0 ? (
@@ -2294,7 +2311,7 @@ export default function App() {
                         ? 'No movies yet. Use “Add new movie” to create a title.'
                         : 'No films match the current filters.'}
                     </p>
-                  ) : (
+                  ) : filmsViewMode === 'card' ? (
                     <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                       {filteredMovies.map((m) => (
                         <li key={m.film_number}>
@@ -2313,6 +2330,103 @@ export default function App() {
                         </li>
                       ))}
                     </ul>
+                  ) : (
+                    /* ── Table View ───────────────────────────────────────── */
+                    <div className="overflow-x-auto rounded-xl border border-[rgba(74,20,140,0.1)]">
+                      <table className="w-full border-collapse text-left text-[12px]">
+                        <thead>
+                          <tr style={{ background: '#2D1B69' }}>
+                            {['Film', 'Film #', 'Release Date', 'Profit Center', 'Planned Budget', 'AdPub Exp.', 'Print Exp.', 'Status'].map(col => (
+                              <th key={col} className="px-4 py-3 text-[0.55rem] font-bold uppercase tracking-[0.16em] text-white/80 whitespace-nowrap">
+                                {col}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredMovies.map((m, i) => {
+                            const planned = movieBudgetTotals[m.film_number] ?? 0
+                            const adpub   = movieMarketingTotals[m.film_number] ?? 0
+                            const print   = moviePrintTotals[m.film_number] ?? 0
+                            const fmtCur  = (n) => n === 0 ? '—' : '₪' + n.toLocaleString('en-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+                            const statusCfg = {
+                              plan_pre:       { label: 'Plan Pre', bg: '#EDE8F8', color: '#4B4594' },
+                              screening_post: { label: 'Post',     bg: '#FFF7E0', color: '#B45309' },
+                              final:          { label: 'Final',    bg: '#DCFCE7', color: '#166534' },
+                              approved:       { label: '✓ OK',     bg: '#DCFCE7', color: '#166534' },
+                              underspend:     { label: '↓ Under',  bg: '#FEF3C7', color: '#D97706' },
+                              overspend:      { label: '⚠ Over',   bg: '#FEE2E2', color: '#B91C1C' },
+                            }
+                            const sc = statusCfg[m.budget_status] ?? { label: '—', bg: '#F7F4FB', color: '#8A7BAB' }
+                            return (
+                              <tr key={m.film_number}
+                                onClick={() => setSelectedMovie(m)}
+                                className="cursor-pointer border-b border-[rgba(74,20,140,0.07)] transition-colors hover:bg-[#F0EBFF]"
+                                style={{ background: i % 2 === 0 ? '#FAFAFE' : '#FFFFFF' }}>
+
+                                {/* Film names */}
+                                <td className="px-4 py-3 max-w-[220px]">
+                                  <p className="font-semibold text-[#2D1B69] leading-snug">{m.title_en || '—'}</p>
+                                  {m.title_he && (
+                                    <p className="text-[10px] text-[#9A8AB8] mt-0.5" dir="rtl" lang="he">{m.title_he}</p>
+                                  )}
+                                </td>
+
+                                {/* Film number */}
+                                <td className="px-4 py-3 whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#5B4B7A]">
+                                  {m.film_number ?? '—'}
+                                </td>
+
+                                {/* Release date */}
+                                <td className="px-4 py-3 whitespace-nowrap text-[11px] text-[#5B4B7A]">
+                                  {formatReleaseDate(m.release_date) ?? '—'}
+                                </td>
+
+                                {/* Profit center(s) */}
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    {m.profit_center && (
+                                      <span className="rounded bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#4A148C]">
+                                        {m.profit_center}
+                                      </span>
+                                    )}
+                                    {m.profit_center_2 && (
+                                      <span className="rounded bg-[#E8F0FE] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#1E40AF]">
+                                        {m.profit_center_2}
+                                      </span>
+                                    )}
+                                    {!m.profit_center && !m.profit_center_2 && <span className="text-[#C0B8D8]">—</span>}
+                                  </div>
+                                </td>
+
+                                {/* Planned budget */}
+                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold text-[#2D1B69]">
+                                  {fmtCur(planned)}
+                                </td>
+
+                                {/* AdPub expenses */}
+                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#C0392B]">
+                                  {fmtCur(adpub)}
+                                </td>
+
+                                {/* Print expenses */}
+                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#7B52AB]">
+                                  {fmtCur(print)}
+                                </td>
+
+                                {/* Status */}
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <span className="rounded-md px-2 py-0.5 text-[10px] font-bold"
+                                    style={{ background: sc.bg, color: sc.color }}>
+                                    {sc.label}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
 
                 </div>
