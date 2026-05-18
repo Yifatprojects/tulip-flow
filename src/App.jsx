@@ -758,82 +758,59 @@ function DashboardSummaryRow({ studioOptions = [] }) {
   }
 
   const cards = [
-    { label: 'Current Month Revenue',  value: summary?.currIncome   ?? 0, color: '#0EA5A0', icon: TrendingUp,  drillType: null },
-    { label: 'Current Month Expenses', value: summary?.currExpenses ?? 0, color: '#C0392B', icon: Receipt,     drillType: null },
-    { label: 'Revenue YTD',            value: summary?.ytdIncome    ?? 0, color: '#2FA36B', icon: DollarSign,  drillType: 'revenue' },
-    { label: 'Expenses YTD',           value: summary?.ytdExpenses  ?? 0, color: '#7B52AB', icon: Film,        drillType: 'expenses' },
+    { label: 'Revenue YTD',  value: summary?.ytdIncome   ?? 0, color: '#2FA36B', icon: DollarSign, drillType: 'revenue'  },
+    { label: 'Expenses YTD', value: summary?.ytdExpenses ?? 0, color: '#7B52AB', icon: Receipt,    drillType: 'expenses' },
   ]
+
+  const currentYear = new Date().getFullYear()
 
   return (
     <div className="mb-8">
-      {/* ── Studio filter bar ── */}
-      {studioOptions.length > 0 && (
+      {/* ── YTD cards + inline studio filter + Audit ── */}
+      <div className="rounded-2xl border border-[rgba(74,20,140,0.12)] bg-white p-4 shadow-[0_6px_20px_rgba(74,20,140,0.07)]">
+
+        {/* Top row: label + studio pills + Audit button */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="text-[0.6rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">Filter by Studio</span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setSummaryStudio('')}
-              className={`rounded-lg px-3 py-1 text-[11px] font-semibold transition-all ${
+          <span className="shrink-0 text-[0.6rem] font-bold uppercase tracking-[0.18em] text-[#8A7BAB]">
+            YTD {currentYear}
+          </span>
+
+          {/* Studio selector */}
+          <div className="flex flex-wrap items-center gap-1">
+            <button type="button" onClick={() => setSummaryStudio('')}
+              className={`rounded-md px-2.5 py-0.5 text-[10px] font-semibold transition-all ${
                 summaryStudio === ''
                   ? 'bg-[#4A148C] text-white shadow-sm'
-                  : 'border border-[rgba(74,20,140,0.18)] bg-white text-[#8A7BAB] hover:bg-[#F4F0FF] hover:text-[#4A148C]'
-              }`}
-            >
-              All Studios
-            </button>
+                  : 'border border-[rgba(74,20,140,0.18)] bg-[#F7F4FB] text-[#8A7BAB] hover:bg-[#EDE8F8] hover:text-[#4A148C]'
+              }`}>All</button>
             {studioOptions.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setSummaryStudio(s)}
-                className={`rounded-lg px-3 py-1 text-[11px] font-semibold transition-all ${
+              <button key={s} type="button" onClick={() => setSummaryStudio(s)}
+                className={`rounded-md px-2.5 py-0.5 text-[10px] font-semibold transition-all ${
                   summaryStudio === s
                     ? 'bg-[#4A148C] text-white shadow-sm'
-                    : 'border border-[rgba(74,20,140,0.18)] bg-white text-[#8A7BAB] hover:bg-[#F4F0FF] hover:text-[#4A148C]'
-                }`}
-              >
-                {s}
-              </button>
+                    : 'border border-[rgba(74,20,140,0.18)] bg-[#F7F4FB] text-[#8A7BAB] hover:bg-[#EDE8F8] hover:text-[#4A148C]'
+                }`}>{s}</button>
             ))}
           </div>
-          {summaryStudio && (
-            <button
-              type="button"
-              onClick={() => setSummaryStudio('')}
-              className="ml-1 flex items-center gap-1 rounded-lg border border-[rgba(198,40,40,0.2)] bg-[#FFF5F5] px-2 py-1 text-[10px] font-semibold text-[#C62828] transition hover:bg-[#FFEBEE]"
-            >
-              <X className="h-3 w-3" aria-hidden /> Clear Filter
-            </button>
-          )}
-          {/* Audit trigger */}
-          <button
-            type="button"
-            onClick={() => showAudit ? setShowAudit(false) : runAudit()}
-            className="ml-auto flex items-center gap-1.5 rounded-lg border border-[rgba(74,20,140,0.18)] bg-white px-2.5 py-1 text-[10px] font-semibold text-[#8A7BAB] transition hover:bg-[#F4F0FF] hover:text-[#4A148C]"
-            title="Audit data consistency"
-          >
+
+          {/* Audit button — pushed right */}
+          <button type="button" onClick={() => showAudit ? setShowAudit(false) : runAudit()}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-[rgba(74,20,140,0.18)] bg-[#F7F4FB] px-2.5 py-1 text-[10px] font-semibold text-[#8A7BAB] transition hover:bg-[#EDE8F8] hover:text-[#4A148C]"
+            title="Audit data consistency">
             <Receipt className="h-3 w-3" aria-hidden />
             {showAudit ? 'Hide Audit' : 'Audit Data'}
           </button>
         </div>
-      )}
 
-      {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {cards.map(({ label, value, color, icon: Icon, drillType }) => {
-          const isClickable = !!drillType
-          return (
-            <div
-              key={label}
-              onClick={isClickable ? () => fetchDrilldown(drillType) : undefined}
-              role={isClickable ? 'button' : undefined}
-              tabIndex={isClickable ? 0 : undefined}
-              onKeyDown={isClickable ? (e) => e.key === 'Enter' && fetchDrilldown(drillType) : undefined}
-              title={isClickable ? `Click to see breakdown` : undefined}
-              className={`rounded-xl border border-[rgba(74,20,140,0.12)] bg-white p-3.5 shadow-[0_6px_20px_rgba(74,20,140,0.07)] transition
-                ${isClickable ? 'cursor-pointer hover:border-[rgba(74,20,140,0.28)] hover:shadow-[0_8px_28px_rgba(74,20,140,0.13)] hover:ring-1 hover:ring-[rgba(74,20,140,0.12)]' : ''}`}
-            >
+        {/* KPI cards — 2 columns */}
+        <div className="grid grid-cols-2 gap-3">
+          {cards.map(({ label, value, color, icon: Icon, drillType }) => (
+            <div key={label}
+              onClick={() => fetchDrilldown(drillType)}
+              role="button" tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && fetchDrilldown(drillType)}
+              title="Click to see breakdown"
+              className="cursor-pointer rounded-xl border border-[rgba(74,20,140,0.10)] bg-[#FAFAFE] p-3.5 transition hover:border-[rgba(74,20,140,0.25)] hover:shadow-[0_6px_18px_rgba(74,20,140,0.11)]">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg" style={{ background: `${color}18` }}>
@@ -841,22 +818,20 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                   </div>
                   <p className="text-[0.6rem] font-semibold uppercase tracking-[0.16em] text-[#8A7BAB]">{label}</p>
                 </div>
-                {isClickable && (
-                  <span className="rounded-md border border-[rgba(74,20,140,0.14)] bg-[#F4F0FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#8A7BAB]">
-                    Drill ↗
-                  </span>
-                )}
+                <span className="rounded-md border border-[rgba(74,20,140,0.14)] bg-[#F4F0FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#8A7BAB]">
+                  Drill ↗
+                </span>
               </div>
               {loading ? (
                 <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
               ) : (
-                <p className="font-['Montserrat',sans-serif] text-lg font-extrabold tabular-nums" style={{ color }}>
+                <p className="font-['Montserrat',sans-serif] text-xl font-extrabold tabular-nums" style={{ color }}>
                   {formatCurrency(value)}
                 </p>
               )}
             </div>
-          )
-        })}
+          ))}
+        </div>
       </div>
 
       {/* ── Data Audit Panel ── */}
@@ -1382,7 +1357,7 @@ export default function App() {
         .from('activity_log')
         .select('id, action_type, description, film_title, created_at')
         .order('created_at', { ascending: false })
-        .limit(3)
+        .limit(5)
       setLastActions(data ?? [])
     } catch (err) {
       console.warn('[activityLog] fetch failed:', err)
@@ -1920,10 +1895,61 @@ export default function App() {
                 .slice(0, 5)
 
               return (
-                <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
 
-                  {/* ── Coming Soon ── */}
-                  <div className="col-span-1 sm:col-span-2 rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                  {/* ══ COL 1: Quick Actions 2×2 + Last PC Upload ══ */}
+                  <div className="flex flex-col gap-4">
+
+                    {/* Quick Actions — 2×2 tile grid */}
+                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-center gap-2">
+                        <Settings className="h-4 w-4 text-[#4B4594]" aria-hidden />
+                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Quick Actions</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { label: 'Films',    Icon: Clapperboard, onClick: () => setFilmsManagerOpen(true),           color: '#4B4594' },
+                          { label: 'Expenses', Icon: Receipt,      onClick: () => setCatalogsManagerOpen('expenses'),   color: '#0D9488' },
+                          { label: 'Rentals',  Icon: Film,         onClick: () => setCatalogsManagerOpen('rentals'),    color: '#E65100' },
+                          { label: 'PC Uploads', Icon: History,    onClick: () => setUploadsManagerOpen(true),          color: '#7B52AB' },
+                          { label: 'Budget Uploads', Icon: BookOpen, onClick: () => setBudgetUploadsManagerOpen(true),  color: '#2FA36B' },
+                        ].map(({ label, Icon, onClick, color }) => (
+                          <button key={label} type="button" onClick={onClick}
+                            className="group flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] py-4 text-center transition hover:border-[rgba(74,20,140,0.28)] hover:bg-[#EDE8F8] hover:shadow-sm">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-xl transition group-hover:scale-110"
+                                 style={{ background: `${color}18` }}>
+                              <Icon className="h-4 w-4" style={{ color }} aria-hidden />
+                            </div>
+                            <span className="text-[10px] font-semibold text-[#4B4594]">{label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Last PC Upload per Studio */}
+                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
+                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last PC Upload per Studio</p>
+                      </div>
+                      {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
+                        <div className="space-y-2">
+                          {lastUpdateInfo.map(({ studio, period }) => (
+                            <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
+                              <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
+                              <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
+                      )}
+                    </div>
+
+                  </div>{/* end col 1 */}
+
+                  {/* ══ COL 2: Coming Soon ══ */}
+                  <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
                     <div className="mb-3 flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-[#E65100]" aria-hidden />
                       <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Coming Soon</p>
@@ -1983,133 +2009,66 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* ── Last Update + Last Actions stacked ── */}
-                  <div className="flex flex-col gap-4">
-
-                    {/* Last Update */}
-                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                      <div className="mb-3 flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4 text-[#2FA36B]" aria-hidden />
-                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last PC Upload per Studio</p>
-                      </div>
-                      {lastUpdateInfo && lastUpdateInfo.length > 0 ? (
-                        <div className="space-y-2">
-                          {lastUpdateInfo.map(({ studio, period }) => (
-                            <div key={studio} className="flex items-center justify-between gap-2 rounded-xl bg-[#F7F4FB] px-3 py-2">
-                              <span className="rounded-md bg-[#EDE8F8] px-2 py-0.5 text-[10px] font-bold text-[#4A148C]">{studio}</span>
-                              <span className="font-['Montserrat',sans-serif] text-sm font-extrabold text-[#2D1B69]">{period}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-[#C0B8D8]">No imports yet.</p>
-                      )}
-                    </div>
-
-                    {/* Last Actions */}
-                    <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
-                      <div className="mb-3 flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-[#7B52AB]" aria-hidden />
-                        <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Actions</p>
-                      </div>
-                      {lastActions.length === 0 ? (
-                        <p className="text-sm text-[#C0B8D8]">No actions recorded yet.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {lastActions.map(action => {
-                            // icon + palette per action type
-                            const cfgMap = {
-                              status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
-                              budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Budget uploaded for' },
-                              budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Budget edited for' },
-                              movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New movie added' },
-                              catalog_edit:          { Icon: ListChecks,  iconColor: '#2563EB', iconBg: '#EFF6FF', label: null },
-                              pc_upload_deleted:     { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: null },
-                              budget_upload_deleted: { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: 'Budget deleted for' },
-                            }
-                            const cfg = cfgMap[action.action_type] ?? { Icon: Clock, iconColor: '#8A7BAB', iconBg: '#F7F4FB', label: null }
-
-                            return (
-                              <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
-                                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
-                                     style={{ background: cfg.iconBg }}>
-                                  <cfg.Icon className="h-3 w-3" style={{ color: cfg.iconColor }} aria-hidden />
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[11px] leading-snug text-[#2D1B69]">
-                                    {action.action_type === 'status_change'
-                                      ? (() => {
-                                          const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
-                                          return (
-                                            <>
-                                              Status updated
-                                              {action.film_title && <> for <strong className="font-semibold">{action.film_title}</strong></>}
-                                              {arrow && <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>}
-                                            </>
-                                          )
-                                        })()
-                                      : (action.action_type === 'catalog_edit' || action.action_type === 'pc_upload_deleted')
-                                      ? <span className="text-[#5B4B7A]">{action.description}</span>
-                                      : <>
-                                          {cfg.label}
-                                          {action.film_title
-                                            ? <> <strong className="font-semibold">{action.film_title}</strong></>
-                                            : action.description && !cfg.label
-                                              ? <span className="text-[#5B4B7A]"> {action.description}</span>
-                                              : null
-                                          }
-                                        </>
-                                    }
-                                  </p>
-                                  <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                  </div>{/* end stacked column */}
-
-                  {/* ── Quick Actions ── */}
+                  {/* ══ COL 3: Last Actions feed ══ */}
                   <div className="rounded-2xl border border-[rgba(74,20,140,0.15)] bg-white p-5 shadow-sm">
                     <div className="mb-3 flex items-center gap-2">
-                      <Settings className="h-4 w-4 text-[#4B4594]" aria-hidden />
-                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Quick Actions</p>
+                      <Clock className="h-4 w-4 text-[#7B52AB]" aria-hidden />
+                      <p className="text-[0.6rem] font-bold uppercase tracking-[0.2em] text-[#8A7BAB]">Last Actions</p>
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <button type="button"
-                        onClick={() => setFilmsManagerOpen(true)}
-                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
-                        <Clapperboard className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage Films
-                      </button>
-                      <button type="button"
-                        onClick={() => setCatalogsManagerOpen('expenses')}
-                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
-                        <Receipt className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage Expenses
-                      </button>
-                      <button type="button"
-                        onClick={() => setCatalogsManagerOpen('rentals')}
-                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
-                        <Film className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage Rentals
-                      </button>
-                      <button type="button"
-                        onClick={() => setUploadsManagerOpen(true)}
-                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
-                        <History className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage PC Uploads
-                      </button>
-                      <button type="button"
-                        onClick={() => setBudgetUploadsManagerOpen(true)}
-                        className="flex items-center gap-2.5 rounded-xl border border-[rgba(74,20,140,0.15)] bg-[#F7F4FB] px-3 py-2.5 text-left text-[12px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]">
-                        <BookOpen className="h-4 w-4 shrink-0 text-[#4B4594]" aria-hidden />
-                        Manage Budget Uploads
-                      </button>
-                    </div>
+                    {lastActions.length === 0 ? (
+                      <p className="text-sm text-[#C0B8D8]">No actions recorded yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {lastActions.map(action => {
+                          const cfgMap = {
+                            status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
+                            budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Budget uploaded for' },
+                            budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Budget edited for' },
+                            movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New film added' },
+                            catalog_edit:          { Icon: ListChecks,  iconColor: '#2563EB', iconBg: '#EFF6FF', label: null },
+                            pc_upload_deleted:     { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: null },
+                            budget_upload_deleted: { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: 'Budget deleted for' },
+                          }
+                          const cfg = cfgMap[action.action_type] ?? { Icon: Clock, iconColor: '#8A7BAB', iconBg: '#F7F4FB', label: null }
+                          return (
+                            <div key={action.id} className="flex items-start gap-2.5 rounded-xl bg-[#F7F4FB] px-3 py-2.5">
+                              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                                   style={{ background: cfg.iconBg }}>
+                                <cfg.Icon className="h-3 w-3" style={{ color: cfg.iconColor }} aria-hidden />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] leading-snug text-[#2D1B69]">
+                                  {action.action_type === 'status_change'
+                                    ? (() => {
+                                        const arrow = action.description?.match(/:\s*(.+?)\s*→\s*(.+)$/)
+                                        return (
+                                          <>
+                                            Status updated
+                                            {action.film_title && <> for <strong className="font-semibold">{action.film_title}</strong></>}
+                                            {arrow && <span className="text-[#9A7BC0]"> · {arrow[1].trim()} → {arrow[2].trim()}</span>}
+                                          </>
+                                        )
+                                      })()
+                                    : (action.action_type === 'catalog_edit' || action.action_type === 'pc_upload_deleted')
+                                    ? <span className="text-[#5B4B7A]">{action.description}</span>
+                                    : <>
+                                        {cfg.label}
+                                        {action.film_title
+                                          ? <> <strong className="font-semibold">{action.film_title}</strong></>
+                                          : action.description && !cfg.label
+                                            ? <span className="text-[#5B4B7A]"> {action.description}</span>
+                                            : null
+                                        }
+                                      </>
+                                  }
+                                </p>
+                                <p className="mt-0.5 text-[9px] text-[#B0A4CC]">{timeAgo(action.created_at)}</p>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
 
                 </div>
