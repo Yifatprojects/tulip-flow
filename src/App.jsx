@@ -2358,7 +2358,51 @@ export default function App() {
                         return 0
                       })
 
+                      const exportTableToExcel = () => {
+                        const statusLabels = {
+                          plan_pre: 'Plan Pre',
+                          screening_post: 'Post',
+                          final: 'Final',
+                          approved: '✓ OK',
+                          underspend: '↓ Under',
+                          overspend: '⚠ Over',
+                        }
+                        const rows = tableRows.map((m) => {
+                          const planned = movieBudgetTotals[m.film_number] ?? 0
+                          const adpub   = movieMarketingTotals[m.film_number] ?? 0
+                          const print   = moviePrintTotals[m.film_number] ?? 0
+                          const pc = [m.profit_center, m.profit_center_2].filter(Boolean).join(' | ') || '—'
+                          return {
+                            'Film (English)': m.title_en || '',
+                            'Film (Hebrew)': m.title_he || '',
+                            'Film #': m.film_number ?? '',
+                            'Release Date': formatReleaseDate(m.release_date) ?? '',
+                            'Profit Center': pc,
+                            'Planned Budget': planned,
+                            'AdPub Expenses': adpub,
+                            'Print Expenses': print,
+                            'Status': statusLabels[m.budget_status] ?? '—',
+                          }
+                        })
+                        const ws = XLSX.utils.json_to_sheet(rows)
+                        const wb = XLSX.utils.book_new()
+                        XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
+                        const stamp = new Date().toISOString().slice(0, 10)
+                        XLSX.writeFile(wb, `active_films_${stamp}.xlsx`)
+                      }
+
                       return (
+                    <>
+                    <div className="mb-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={exportTableToExcel}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] shadow-sm transition hover:bg-[#F7F2FF]"
+                      >
+                        <Download className="h-3.5 w-3.5" aria-hidden />
+                        Export Excel
+                      </button>
+                    </div>
                     <div className="overflow-x-auto rounded-xl border border-[rgba(74,20,140,0.1)]">
                       <table className="w-full border-collapse text-left text-[12px]">
                         <thead>
@@ -2465,6 +2509,7 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+                    </>
                       ) // end return
                     })() // end IIFE
                   )}
