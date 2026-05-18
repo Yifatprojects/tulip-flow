@@ -1592,6 +1592,57 @@ export default function App() {
     getFilmPerfStatus,
   ])
 
+  /** Table view row order — matches column sort UI */
+  const sortedActiveFilmsTableRows = useMemo(() => {
+    const dir = tableSortDir === 'asc' ? 1 : -1
+    const getVal = (m) => {
+      if (tableSortCol === 'planned') return movieBudgetTotals[m.film_number] ?? 0
+      if (tableSortCol === 'adpub') return movieMarketingTotals[m.film_number] ?? 0
+      if (tableSortCol === 'print') return moviePrintTotals[m.film_number] ?? 0
+      const v = m[tableSortCol] ?? ''
+      return typeof v === 'string' ? v.toLowerCase() : v
+    }
+    return [...filteredMovies].sort((a, b) => {
+      const va = getVal(a), vb = getVal(b)
+      if (va < vb) return -dir
+      if (va > vb) return dir
+      return 0
+    })
+  }, [filteredMovies, tableSortCol, tableSortDir, movieBudgetTotals, movieMarketingTotals, moviePrintTotals])
+
+  const exportActiveFilmsTableToExcel = useCallback(() => {
+    const statusLabels = {
+      plan_pre: 'Plan Pre',
+      screening_post: 'Post',
+      final: 'Final',
+      approved: '✓ OK',
+      underspend: '↓ Under',
+      overspend: '⚠ Over',
+    }
+    const rows = sortedActiveFilmsTableRows.map((m) => {
+      const planned = movieBudgetTotals[m.film_number] ?? 0
+      const adpub = movieMarketingTotals[m.film_number] ?? 0
+      const print = moviePrintTotals[m.film_number] ?? 0
+      const pc = [m.profit_center, m.profit_center_2].filter(Boolean).join(' | ') || '—'
+      return {
+        'Film (English)': m.title_en || '',
+        'Film (Hebrew)': m.title_he || '',
+        'Film #': m.film_number ?? '',
+        'Release Date': formatReleaseDate(m.release_date) ?? '',
+        'Profit Center': pc,
+        'Planned Budget': planned,
+        'AdPub Expenses': adpub,
+        'Print Expenses': print,
+        'Status': statusLabels[m.budget_status] ?? '—',
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
+    const stamp = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `active_films_${stamp}.xlsx`)
+  }, [sortedActiveFilmsTableRows, movieBudgetTotals, movieMarketingTotals, moviePrintTotals])
+
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
 
   useEffect(() => {
@@ -2277,20 +2328,33 @@ export default function App() {
                       {hideNoData ? 'Active only' : 'All films'}
                     </button>
 
-                    {/* View toggle */}
-                    <div className="ml-auto shrink-0 flex items-center rounded-lg border border-[rgba(74,20,140,0.18)] bg-white/95 p-0.5 shadow-sm">
-                      <button type="button"
-                        onClick={() => setFilmsViewMode('card')}
-                        title="Card view"
-                        className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'card' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
-                        <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                      <button type="button"
-                        onClick={() => setFilmsViewMode('table')}
-                        title="Table view"
-                        className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'table' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
-                        <List className="h-3.5 w-3.5" aria-hidden />
-                      </button>
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      {filmsViewMode === 'table' && filteredMovies.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={exportActiveFilmsTableToExcel}
+                          title="Export table to Excel"
+                          className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(0,0,0,0.08)] bg-white px-3.5 py-1.5 text-[11px] font-semibold text-[#2FA36B] shadow-sm transition hover:bg-[#F0FBF5] hover:ring-1 hover:ring-[#2FA36B]/25"
+                        >
+                          <Download className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          Export
+                        </button>
+                      )}
+                      {/* View toggle */}
+                      <div className="flex items-center rounded-lg border border-[rgba(74,20,140,0.18)] bg-white/95 p-0.5 shadow-sm">
+                        <button type="button"
+                          onClick={() => setFilmsViewMode('card')}
+                          title="Card view"
+                          className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'card' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
+                          <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                        <button type="button"
+                          onClick={() => setFilmsViewMode('table')}
+                          title="Table view"
+                          className={`flex items-center justify-center rounded-md p-1.5 transition ${filmsViewMode === 'table' ? 'bg-[#4B4594] text-white shadow-sm' : 'text-[#8A7BAB] hover:text-[#4B4594]'}`}>
+                          <List className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -2322,7 +2386,6 @@ export default function App() {
                   ) : (
                     /* ── Table View ───────────────────────────────────────── */
                     (() => {
-                      // column definitions: label, sort key, alignment
                       const COLS = [
                         { label: 'Film',           key: 'title_en',    align: 'left'  },
                         { label: 'Film #',         key: 'film_number', align: 'left'  },
@@ -2343,66 +2406,9 @@ export default function App() {
                         }
                       }
 
-                      const tableRows = [...filteredMovies].sort((a, b) => {
-                        const dir = tableSortDir === 'asc' ? 1 : -1
-                        const getVal = (m) => {
-                          if (tableSortCol === 'planned')  return movieBudgetTotals[m.film_number] ?? 0
-                          if (tableSortCol === 'adpub')    return movieMarketingTotals[m.film_number] ?? 0
-                          if (tableSortCol === 'print')    return moviePrintTotals[m.film_number] ?? 0
-                          const v = m[tableSortCol] ?? ''
-                          return typeof v === 'string' ? v.toLowerCase() : v
-                        }
-                        const va = getVal(a), vb = getVal(b)
-                        if (va < vb) return -dir
-                        if (va > vb) return  dir
-                        return 0
-                      })
-
-                      const exportTableToExcel = () => {
-                        const statusLabels = {
-                          plan_pre: 'Plan Pre',
-                          screening_post: 'Post',
-                          final: 'Final',
-                          approved: '✓ OK',
-                          underspend: '↓ Under',
-                          overspend: '⚠ Over',
-                        }
-                        const rows = tableRows.map((m) => {
-                          const planned = movieBudgetTotals[m.film_number] ?? 0
-                          const adpub   = movieMarketingTotals[m.film_number] ?? 0
-                          const print   = moviePrintTotals[m.film_number] ?? 0
-                          const pc = [m.profit_center, m.profit_center_2].filter(Boolean).join(' | ') || '—'
-                          return {
-                            'Film (English)': m.title_en || '',
-                            'Film (Hebrew)': m.title_he || '',
-                            'Film #': m.film_number ?? '',
-                            'Release Date': formatReleaseDate(m.release_date) ?? '',
-                            'Profit Center': pc,
-                            'Planned Budget': planned,
-                            'AdPub Expenses': adpub,
-                            'Print Expenses': print,
-                            'Status': statusLabels[m.budget_status] ?? '—',
-                          }
-                        })
-                        const ws = XLSX.utils.json_to_sheet(rows)
-                        const wb = XLSX.utils.book_new()
-                        XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
-                        const stamp = new Date().toISOString().slice(0, 10)
-                        XLSX.writeFile(wb, `active_films_${stamp}.xlsx`)
-                      }
+                      const tableRows = sortedActiveFilmsTableRows
 
                       return (
-                    <>
-                    <div className="mb-2 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={exportTableToExcel}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(74,20,140,0.2)] bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] shadow-sm transition hover:bg-[#F7F2FF]"
-                      >
-                        <Download className="h-3.5 w-3.5" aria-hidden />
-                        Export Excel
-                      </button>
-                    </div>
                     <div className="overflow-x-auto rounded-xl border border-[rgba(74,20,140,0.1)]">
                       <table className="w-full border-collapse text-left text-[12px]">
                         <thead>
@@ -2509,7 +2515,6 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
-                    </>
                       ) // end return
                     })() // end IIFE
                   )}
