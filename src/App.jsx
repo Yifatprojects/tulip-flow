@@ -1,10 +1,10 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertCircle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
+  AlertCircle, AlertTriangle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
   ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2,
   Film, History, LayoutGrid, List, ListChecks, Loader2, LogOut, Plus, PlusCircle,
   Receipt, RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
-  UploadCloud, X,
+  UploadCloud, X, XCircle,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import {
@@ -23,6 +23,81 @@ import { LoginPage } from './LoginPage'
 
 /** Fixed studio name options — shared across the app */
 const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Independent']
+
+/** Inline film metadata inputs — matches FilmsManagement styling */
+function FilmTableInput({ value, onChange, placeholder, className = '', dir, type = 'text' }) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      dir={dir}
+      onClick={(e) => e.stopPropagation()}
+      className={`w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 ${className}`}
+    />
+  )
+}
+
+function FilmTableSelect({ value, onChange, options, className = '' }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      className={`w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 ${className}`}
+    >
+      {options.map(({ value: v, label }) => (
+        <option key={v} value={v}>{label}</option>
+      ))}
+    </select>
+  )
+}
+
+const ACTIVE_TABLE_BUDGET_ADJ = 'TULIP Active Films adjustment'
+const ACTIVE_TABLE_EXP_ADPUB_ADJ = 'TULIP-ADPUB-ADJ'
+const ACTIVE_TABLE_EXP_PRINT_ADJ = '950-TULIP-PRINT-ADJ'
+const ACTIVE_TABLE_REV_ADJ = 'TULIP-REV-ADJ'
+
+/** Workflow statuses — only these may be changed from the Active Films table */
+const ACTIVE_FILMS_WORKFLOW_STATUS_OPTIONS = [
+  { value: 'plan_pre',       label: 'Plan Pre' },
+  { value: 'screening_post', label: 'Post' },
+  { value: 'final',          label: 'Final' },
+]
+
+const ACTIVE_FILMS_WORKFLOW_STATUSES = ['plan_pre', 'screening_post', 'final']
+const ACTIVE_FILMS_PERF_STATUSES = ['approved', 'underspend', 'overspend']
+
+/** Status dropdown is editable only for manual workflow stages (not computed Under/Over/At Budget). */
+function isActiveTableStatusEditable(film, perfStatus) {
+  if (perfStatus) return false
+  const workflow = film.budget_status || 'plan_pre'
+  return ACTIVE_FILMS_WORKFLOW_STATUSES.includes(workflow)
+}
+
+function parseActiveTableAmount(val) {
+  if (val == null || val === '') return 0
+  const n = Number(String(val).replace(/[₪,\s]/g, ''))
+  return Number.isFinite(n) ? Math.max(0, n) : 0
+}
+
+function tuneFinancialsForPerfStatus(status, planned, adpub) {
+  const p = Math.max(0, planned)
+  let a = Math.max(0, adpub)
+  if (status === 'overspend') {
+    a = p > 0 ? Math.max(a, p + 1) : Math.max(a, 1)
+  } else if (status === 'underspend') {
+    if (p > 0) a = Math.min(a > 0 ? a : p * 0.5, p * 0.94)
+    else if (a <= 0) a = 0
+  } else if (status === 'approved') {
+    if (p > 0) {
+      const lo = p * 0.96
+      a = a > 0 ? Math.min(Math.max(a, lo), p) : lo
+    }
+  }
+  return { planned: p, adpub: a }
+}
 
 /** Dashboard Last Actions: Supabase fetch limit = visible row slots (keep in sync). */
 const LAST_ACTIONS_FEED_LIMIT = 8
@@ -154,7 +229,7 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
       <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[rgba(74,20,140,0.14)] bg-white/95 p-3 shadow-[0_8px_24px_rgba(74,20,140,0.08)] sm:p-4">
         <div className="min-h-[3.25rem] sm:min-h-[3.5rem]">
           <p className="text-[0.6rem] font-semibold uppercase leading-snug tracking-[0.14em] text-[#8A7BAB] sm:text-[0.65rem] sm:tracking-[0.16em]">
-            Total budget
+            Total Adpub
           </p>
         </div>
         <p className="mt-2 min-w-0 max-w-full font-['Montserrat',sans-serif] text-[clamp(0.875rem,2.4vw,1.25rem)] font-semibold tabular-nums leading-tight tracking-tight text-[#5B4B7A] sm:text-[clamp(0.9375rem,1.9vw,1.375rem)]">
@@ -199,7 +274,7 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
           {formatCurrency(variance)}
         </p>
         <p className="mt-1 text-[10px] text-[#7C6D98] sm:text-[11px]">
-          {varianceNegative ? 'Over budget' : variancePositive ? 'Under budget' : 'On budget'}
+          {varianceNegative ? 'Over Adpub' : variancePositive ? 'Under Adpub' : 'On Adpub'}
         </p>
       </div>
     </div>
@@ -252,6 +327,142 @@ const PRINT_PREFIXES = ['950', '940', '930']
 function isPrintCode(code) {
   const s = String(code ?? '')
   return PRINT_PREFIXES.some((p) => s.startsWith(p))
+}
+
+function currentMonthPeriod() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
+async function syncActiveTableBudgetTotal(filmNumber, targetTotal) {
+  const { data: rows, error } = await supabase
+    .from('budgets')
+    .select('id, planned_amount, budget_item_name')
+    .eq('film_number', filmNumber)
+  if (error) throw error
+
+  const list = rows ?? []
+  const nonAdj = list.filter((r) => r.budget_item_name !== ACTIVE_TABLE_BUDGET_ADJ)
+  const adjRow = list.find((r) => r.budget_item_name === ACTIVE_TABLE_BUDGET_ADJ)
+  const baseSum = nonAdj.reduce((s, r) => s + (Number(r.planned_amount) || 0), 0)
+  const target = Math.max(0, targetTotal)
+  const adjAmount = target - baseSum
+
+  if (nonAdj.length === 0) {
+    if (adjRow?.id) await supabase.from('budgets').delete().eq('id', adjRow.id)
+    if (target <= 0) return
+    const { error: insErr } = await supabase.from('budgets').insert({
+      film_number: filmNumber,
+      budget_item_name: ACTIVE_TABLE_BUDGET_ADJ,
+      planned_amount: target,
+      is_media: false,
+    })
+    if (insErr) throw insErr
+    return
+  }
+
+  if (adjRow) {
+    if (adjAmount === 0) {
+      const { error: delErr } = await supabase.from('budgets').delete().eq('id', adjRow.id)
+      if (delErr) throw delErr
+    } else {
+      const { error: upErr } = await supabase.from('budgets').update({ planned_amount: adjAmount }).eq('id', adjRow.id)
+      if (upErr) throw upErr
+    }
+  } else if (adjAmount !== 0) {
+    const { error: insErr } = await supabase.from('budgets').insert({
+      film_number: filmNumber,
+      budget_item_name: ACTIVE_TABLE_BUDGET_ADJ,
+      planned_amount: adjAmount,
+      is_media: false,
+    })
+    if (insErr) throw insErr
+  }
+}
+
+async function syncActiveTableExpenseTotal(filmNumber, targetTotal, { print }) {
+  const marker = print ? ACTIVE_TABLE_EXP_PRINT_ADJ : ACTIVE_TABLE_EXP_ADPUB_ADJ
+  const { data: rows, error } = await supabase
+    .from('actual_expenses')
+    .select('id, actual_amount, priority_code')
+    .eq('film_number', filmNumber)
+  if (error) throw error
+
+  const list = rows ?? []
+  const nonAdj = list.filter((r) => r.priority_code !== marker)
+  const adjRow = list.find((r) => r.priority_code === marker)
+  const baseSum = nonAdj
+    .filter((r) => (print ? isPrintCode(r.priority_code) : !isPrintCode(r.priority_code)))
+    .reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
+  const target = Math.max(0, targetTotal)
+  const adjAmount = target - baseSum
+  const month = currentMonthPeriod()
+
+  if (baseSum === 0 && !adjRow && target <= 0) return
+
+  if (adjRow) {
+    if (adjAmount === 0) {
+      const { error: delErr } = await supabase.from('actual_expenses').delete().eq('id', adjRow.id)
+      if (delErr) throw delErr
+    } else {
+      const { error: upErr } = await supabase.from('actual_expenses').update({ actual_amount: adjAmount }).eq('id', adjRow.id)
+      if (upErr) throw upErr
+    }
+  } else if (adjAmount !== 0) {
+    const { error: insErr } = await supabase.from('actual_expenses').insert({
+      film_number: filmNumber,
+      priority_code: marker,
+      actual_amount: adjAmount,
+      month_period: month,
+      is_print: print,
+    })
+    if (insErr) throw insErr
+  }
+}
+
+async function syncActiveTableRevenueTotal(filmNumber, targetTotal) {
+  const { data: rows, error } = await supabase
+    .from('rental_transactions')
+    .select('id, actual_amount, priority_code')
+    .eq('film_number', filmNumber)
+  if (error) throw error
+
+  const list = rows ?? []
+  const nonAdj = list.filter((r) => r.priority_code !== ACTIVE_TABLE_REV_ADJ)
+  const adjRow = list.find((r) => r.priority_code === ACTIVE_TABLE_REV_ADJ)
+  const baseSum = nonAdj.reduce((s, r) => s + (Number(r.actual_amount) || 0), 0)
+  const target = Math.max(0, targetTotal)
+  const adjAmount = target - baseSum
+  const month = currentMonthPeriod()
+
+  if (baseSum === 0 && !adjRow && target <= 0) return
+
+  if (adjRow) {
+    if (adjAmount === 0) {
+      const { error: delErr } = await supabase.from('rental_transactions').delete().eq('id', adjRow.id)
+      if (delErr) throw delErr
+    } else {
+      const { error: upErr } = await supabase.from('rental_transactions').update({ actual_amount: adjAmount }).eq('id', adjRow.id)
+      if (upErr) throw upErr
+    }
+  } else if (adjAmount !== 0) {
+    const { error: insErr } = await supabase.from('rental_transactions').insert({
+      film_number: filmNumber,
+      priority_code: ACTIVE_TABLE_REV_ADJ,
+      actual_amount: adjAmount,
+      month_period: month,
+    })
+    if (insErr) throw insErr
+  }
+}
+
+async function syncActiveTableFinancials(filmNumber, { planned, revenue, adpub, print }) {
+  await Promise.all([
+    syncActiveTableBudgetTotal(filmNumber, planned),
+    syncActiveTableRevenueTotal(filmNumber, revenue),
+    syncActiveTableExpenseTotal(filmNumber, adpub, { print: false }),
+    syncActiveTableExpenseTotal(filmNumber, print, { print: true }),
+  ])
 }
 
 async function fetchActualExpensesRows(filmNumber) {
@@ -348,7 +559,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
             </h3>
             {isOverBudget && (
               <span className="shrink-0 self-start rounded-full bg-[#FFE5EC] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E61E6E] ring-1 ring-[#E61E6E]/30">
-                Over Budget
+                Over Adpub
               </span>
             )}
           </div>
@@ -382,7 +593,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
           <p className="font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#4B4594]">
             {formatCurrency(totalBudget)}
           </p>
-          <p className="text-[9px] text-[#8A7BAB]">Budget</p>
+          <p className="text-[9px] text-[#8A7BAB]">Planned Adpub</p>
         </div>
       </div>
 
@@ -1150,6 +1361,11 @@ export default function App() {
   const [filmsViewMode, setFilmsViewMode]   = useState('card') // 'card' | 'table'
   const [tableSortCol,  setTableSortCol]    = useState('release_date')
   const [tableSortDir,  setTableSortDir]    = useState('asc')
+  const [activeTableEditingId, setActiveTableEditingId] = useState(null)
+  const [activeTableDraft, setActiveTableDraft] = useState({})
+  const [activeTableSaving, setActiveTableSaving] = useState(false)
+  const [activeTableSaveError, setActiveTableSaveError] = useState(null)
+  const [activeTableConfirmFnChange, setActiveTableConfirmFnChange] = useState(null)
   const [adminMenuOpen, setAdminMenuOpen] = useState(false)
   const [filmsManagerOpen, setFilmsManagerOpen] = useState(false)
   const [catalogsManagerOpen, setCatalogsManagerOpen] = useState(null) // null | 'expenses' | 'rentals'
@@ -1370,6 +1586,137 @@ export default function App() {
     void refreshMovies()
   }, [refreshMovies])
 
+  const startActiveTableEdit = useCallback((film) => {
+    const fn = film.film_number
+    const plannedVal = movieBudgetTotals[fn] ?? 0
+    const revenueVal = movieIncomeTotals[fn] ?? 0
+    const adpubVal = movieMarketingTotals[fn] ?? 0
+    const printVal = moviePrintTotals[fn] ?? 0
+    const budget = Number(plannedVal)
+    const spent = Number(adpubVal)
+    let perfStatus = null
+    if (budget > 0 && spent > 0) {
+      if (spent > budget) perfStatus = 'overspend'
+      else if (spent <= budget * 0.95) perfStatus = 'underspend'
+      else perfStatus = 'approved'
+    }
+    const statusEditable = isActiveTableStatusEditable(film, perfStatus)
+    setActiveTableEditingId(fn)
+    setActiveTableDraft({
+      film_number:     film.film_number ?? '',
+      title_en:        film.title_en    ?? '',
+      title_he:        film.title_he    ?? '',
+      profit_center:   film.profit_center   ?? '',
+      profit_center_2: film.profit_center_2 ?? '',
+      release_date:    film.release_date ? film.release_date.slice(0, 10) : '',
+      planned:         String(plannedVal),
+      revenue:         String(revenueVal),
+      adpub:           String(adpubVal),
+      print:           String(printVal),
+      status:          perfStatus || film.budget_status || 'plan_pre',
+      statusEditable,
+    })
+    setActiveTableSaveError(null)
+    setActiveTableConfirmFnChange(null)
+  }, [movieBudgetTotals, movieIncomeTotals, movieMarketingTotals, moviePrintTotals])
+
+  const cancelActiveTableEdit = useCallback(() => {
+    setActiveTableEditingId(null)
+    setActiveTableDraft({})
+    setActiveTableSaveError(null)
+    setActiveTableConfirmFnChange(null)
+  }, [])
+
+  const patchActiveTableDraft = useCallback((key, val) => {
+    setActiveTableDraft((d) => ({ ...d, [key]: val }))
+  }, [])
+
+  const buildActiveTableSaveBundle = useCallback((draft) => {
+    let planned = parseActiveTableAmount(draft.planned)
+    let adpub = parseActiveTableAmount(draft.adpub)
+    const revenue = parseActiveTableAmount(draft.revenue)
+    const print = parseActiveTableAmount(draft.print)
+    const status = draft.status || 'plan_pre'
+    const statusEditable = draft.statusEditable !== false
+
+    if (statusEditable && ACTIVE_FILMS_PERF_STATUSES.includes(status)) {
+      const tuned = tuneFinancialsForPerfStatus(status, planned, adpub)
+      planned = tuned.planned
+      adpub = tuned.adpub
+    }
+
+    const filmPayload = {
+      title_en:        draft.title_en     || null,
+      title_he:        draft.title_he     || null,
+      profit_center:   draft.profit_center   || null,
+      profit_center_2: draft.profit_center_2 || null,
+      release_date:    draft.release_date    || null,
+    }
+    if (statusEditable && ACTIVE_FILMS_WORKFLOW_STATUSES.includes(status)) {
+      filmPayload.budget_status = status
+    }
+
+    return {
+      filmPayload,
+      financials: { planned, revenue, adpub, print },
+    }
+  }, [])
+
+  const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload, financials) => {
+    setActiveTableSaving(true)
+    setActiveTableSaveError(null)
+    try {
+      if (oldFn !== newFn) {
+        await Promise.all([
+          supabase.from('actual_expenses').update({ film_number: newFn }).eq('film_number', oldFn),
+          supabase.from('rental_transactions').update({ film_number: newFn }).eq('film_number', oldFn),
+          supabase.from('budgets').update({ film_number: newFn }).eq('film_number', oldFn),
+        ])
+        const { error } = await supabase.from('films').update({ ...filmPayload, film_number: newFn }).eq('film_number', oldFn)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('films').update(filmPayload).eq('film_number', oldFn)
+        if (error) throw error
+      }
+
+      await syncActiveTableFinancials(newFn, financials)
+
+      setMovies((prev) =>
+        (prev ?? []).map((f) =>
+          f.film_number === oldFn ? { ...f, ...filmPayload, film_number: newFn } : f,
+        ),
+      )
+      setSelectedMovie((prev) => {
+        if (!prev || prev.film_number !== oldFn) return prev
+        return { ...prev, ...filmPayload, film_number: newFn }
+      })
+      setActiveTableDraft({})
+      setActiveTableConfirmFnChange(null)
+      setActiveTableEditingId(null)
+      void refreshMovies()
+    } catch (err) {
+      setActiveTableSaveError(err.message ?? String(err))
+    } finally {
+      setActiveTableSaving(false)
+    }
+  }, [refreshMovies])
+
+  const handleActiveTableSave = useCallback(async (originalFilm) => {
+    setActiveTableSaveError(null)
+    const newFn = activeTableDraft.film_number.trim()
+    const oldFn = originalFilm.film_number
+    if (!newFn) {
+      setActiveTableSaveError('Film number cannot be empty.')
+      return
+    }
+    const { filmPayload, financials } = buildActiveTableSaveBundle(activeTableDraft)
+    if (newFn !== oldFn) {
+      setActiveTableConfirmFnChange({ oldFn, newFn, filmPayload, financials })
+    } else {
+      await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload, financials)
+    }
+  }, [activeTableDraft, buildActiveTableSaveBundle, executeActiveTableFilmUpdate])
+
   // ── Activity log helpers ───────────────────────────────────────────────────
   const logActivity = useCallback(async (action_type, description, film_title = null, film_number = null) => {
     try {
@@ -1437,7 +1784,7 @@ export default function App() {
         setExpandedGroups(keys)
       } else {
         console.error(budgetResult.reason)
-        setBudgetError(budgetResult.reason?.message ?? 'Failed to load budget')
+        setBudgetError(budgetResult.reason?.message ?? 'Failed to load Adpub')
         setBudgetRows([])
       }
 
@@ -1608,6 +1955,7 @@ export default function App() {
     const dir = tableSortDir === 'asc' ? 1 : -1
     const getVal = (m) => {
       if (tableSortCol === 'planned') return movieBudgetTotals[m.film_number] ?? 0
+      if (tableSortCol === 'revenue') return movieIncomeTotals[m.film_number] ?? 0
       if (tableSortCol === 'adpub') return movieMarketingTotals[m.film_number] ?? 0
       if (tableSortCol === 'print') return moviePrintTotals[m.film_number] ?? 0
       if (tableSortCol === 'budget_status') {
@@ -1624,7 +1972,7 @@ export default function App() {
       if (va > vb) return dir
       return 0
     })
-  }, [filteredMovies, tableSortCol, tableSortDir, movieBudgetTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
+  }, [filteredMovies, tableSortCol, tableSortDir, movieBudgetTotals, movieIncomeTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
 
   const exportActiveFilmsTableToExcel = useCallback(() => {
     const statusLabels = {
@@ -1637,6 +1985,7 @@ export default function App() {
     }
     const rows = sortedActiveFilmsTableRows.map((m) => {
       const planned = movieBudgetTotals[m.film_number] ?? 0
+      const revenue = movieIncomeTotals[m.film_number] ?? 0
       const adpub = movieMarketingTotals[m.film_number] ?? 0
       const print = moviePrintTotals[m.film_number] ?? 0
       const pc = [m.profit_center, m.profit_center_2].filter(Boolean).join(' | ') || '—'
@@ -1651,7 +2000,8 @@ export default function App() {
         'Film #': m.film_number ?? '',
         'Release Date': formatReleaseDate(m.release_date) ?? '',
         'Profit Center': pc,
-        'Planned Budget': planned,
+        'Planned Adpub': planned,
+        'Revenue': revenue,
         'AdPub Expenses': adpub,
         'Print Expenses': print,
         'Status': statusCell,
@@ -1662,7 +2012,7 @@ export default function App() {
     XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
     const stamp = new Date().toISOString().slice(0, 10)
     XLSX.writeFile(wb, `active_films_${stamp}.xlsx`)
-  }, [sortedActiveFilmsTableRows, movieBudgetTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
+  }, [sortedActiveFilmsTableRows, movieBudgetTotals, movieIncomeTotals, movieMarketingTotals, moviePrintTotals, getFilmPerfStatus])
 
   const studioOptions = useMemo(() => [...DEFAULT_STUDIO_OPTIONS], [])
 
@@ -1824,8 +2174,8 @@ export default function App() {
                   <ExcelUploadButton
                     initialType="budgets"
                     lockType={true}
-                    label="Upload Budget"
-                    subLabel="העלאת תקציב"
+                    label="Upload Adpub"
+                    subLabel="העלאת Adpub"
                     onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_8px_18px_rgba(47,163,107,0.35)] transition hover:bg-[#28915f]"
                   />
@@ -1984,7 +2334,7 @@ export default function App() {
                           { label: 'Expenses', Icon: Receipt,      onClick: () => setCatalogsManagerOpen('expenses'),   color: '#0D9488' },
                           { label: 'Rentals',  Icon: Film,         onClick: () => setCatalogsManagerOpen('rentals'),    color: '#E65100' },
                           { label: 'PC Uploads', Icon: History,    onClick: () => setUploadsManagerOpen(true),          color: '#7B52AB' },
-                          { label: 'Budget Uploads', Icon: BookOpen, onClick: () => setBudgetUploadsManagerOpen(true),  color: '#2FA36B' },
+                          { label: 'Adpub Uploads', Icon: BookOpen, onClick: () => setBudgetUploadsManagerOpen(true),  color: '#2FA36B' },
                         ].map(({ label, Icon, onClick, color }) => (
                           <button key={label} type="button" onClick={onClick}
                             className="group flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#F7F4FB] py-4 text-center transition hover:border-[rgba(74,20,140,0.28)] hover:bg-[#EDE8F8] hover:shadow-sm">
@@ -2072,12 +2422,12 @@ export default function App() {
                                     {hasBudget ? (
                                       <span className="flex items-center gap-1 text-[10px] font-medium text-[#2FA36B]">
                                         <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
-                                        Budget set
+                                        Adpub set
                                       </span>
                                     ) : (
                                       <span className="flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-[#D97706] ring-1 ring-amber-200">
                                         <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
-                                        Missing Budget
+                                        Missing Adpub
                                       </span>
                                     )}
                                   </div>
@@ -2122,12 +2472,12 @@ export default function App() {
                           }
                           const cfgMap = {
                             status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
-                            budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Budget uploaded for' },
-                            budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Budget edited for' },
+                            budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Adpub uploaded for' },
+                            budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Adpub edited for' },
                             movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New film added' },
                             catalog_edit:          { Icon: ListChecks,  iconColor: '#2563EB', iconBg: '#EFF6FF', label: null },
                             pc_upload_deleted:     { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: null },
-                            budget_upload_deleted: { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: 'Budget deleted for' },
+                            budget_upload_deleted: { Icon: Trash2Icon,  iconColor: '#C0004C', iconBg: '#FFF1F3', label: 'Adpub deleted for' },
                           }
                           const cfg = cfgMap[action.action_type] ?? { Icon: Clock, iconColor: '#8A7BAB', iconBg: '#F7F4FB', label: null }
                           return (
@@ -2346,6 +2696,25 @@ export default function App() {
                       })}
                     </div>
 
+                    {(searchTerm.trim() !== '' || studioFilter !== '' || dateFrom || dateTo || statusFilter !== '') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchTerm('')
+                          setStudioFilter('')
+                          setDateFrom('')
+                          setDateTo('')
+                          setDatePickerOpen(false)
+                          setStatusFilter('')
+                        }}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:border-[rgba(74,20,140,0.12)] hover:bg-[#FAFAFE] hover:text-[#4A148C]"
+                        title="Clear all Active Films filters"
+                      >
+                        <XCircle className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+                        Clear Filters
+                      </button>
+                    )}
+
                     <div className="ml-auto flex shrink-0 items-center gap-2">
                       {filmsViewMode === 'table' && filteredMovies.length > 0 && (
                         <button
@@ -2409,14 +2778,16 @@ export default function App() {
                     /* ── Table View ───────────────────────────────────────── */
                     (() => {
                       const COLS = [
-                        { label: 'Film',           key: 'title_en',    align: 'left'  },
-                        { label: 'Film #',         key: 'film_number', align: 'left'  },
-                        { label: 'Release Date',   key: 'release_date',align: 'left'  },
-                        { label: 'Profit Center',  key: 'profit_center',align:'left'  },
-                        { label: 'Planned Budget', key: 'planned',     align: 'right' },
-                        { label: 'AdPub Expenses', key: 'adpub',       align: 'right' },
-                        { label: 'Print Exp.',     key: 'print',       align: 'right' },
-                        { label: 'Status',         key: 'budget_status',align:'left'  },
+                        { label: 'Film',           key: 'title_en',      align: 'left',  width: '14%', sortable: true },
+                        { label: 'Film #',         key: 'film_number',   align: 'left',  width: '8%',  sortable: true },
+                        { label: 'Release Date',   key: 'release_date',  align: 'left',  width: '9%',  sortable: true },
+                        { label: 'Profit Center',  key: 'profit_center', align: 'left',  width: '10%', sortable: true },
+                        { label: 'Planned Adpub', key: 'planned',       align: 'right', width: '10%', sortable: true },
+                        { label: 'Revenue',        key: 'revenue',       align: 'right', width: '9%',  sortable: true },
+                        { label: 'AdPub Exp.',     key: 'adpub',         align: 'right', width: '11%', sortable: true },
+                        { label: 'Print Exp.',     key: 'print',         align: 'right', width: '9%',  sortable: true },
+                        { label: 'Status',         key: 'budget_status', align: 'left',  width: '7%',  sortable: true },
+                        { label: '',               key: '_actions',      align: 'right', width: '13%', sortable: false },
                       ]
 
                       const handleColSort = (key) => {
@@ -2432,22 +2803,29 @@ export default function App() {
 
                       return (
                     <div className="overflow-x-auto rounded-xl border border-[rgba(74,20,140,0.1)]">
-                      <table className="w-full border-collapse text-left text-[12px]">
+                      <table className="w-full min-w-[1040px] table-fixed border-collapse text-left text-[12px]">
+                        <colgroup>
+                          {COLS.map(({ key, width }) => (
+                            <col key={key} style={{ width }} />
+                          ))}
+                        </colgroup>
                         <thead>
                           <tr style={{ background: '#2D1B69' }}>
-                            {COLS.map(({ label, key, align }) => {
-                              const isActive = tableSortCol === key
+                            {COLS.map(({ label, key, align, sortable = true }) => {
+                              const isActive = sortable && tableSortCol === key
                               return (
                                 <th key={key}
-                                  onClick={() => handleColSort(key)}
-                                  className="cursor-pointer select-none px-4 py-3 text-[0.55rem] font-bold uppercase tracking-[0.16em] whitespace-nowrap transition-colors hover:bg-white/10"
+                                  onClick={sortable ? () => handleColSort(key) : undefined}
+                                  className={`select-none px-3 py-2.5 text-[0.55rem] font-bold uppercase tracking-[0.14em] whitespace-nowrap transition-colors ${sortable ? 'cursor-pointer hover:bg-white/10' : ''}`}
                                   style={{ textAlign: align, color: isActive ? '#ffffff' : 'rgba(255,255,255,0.65)' }}>
-                                  <span className={`flex w-full items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
-                                    {label}
-                                    {isActive
-                                      ? <span className="text-white">{tableSortDir === 'asc' ? ' ↑' : ' ↓'}</span>
-                                      : <span className="opacity-30">↕</span>}
-                                  </span>
+                                  {sortable ? (
+                                    <span className={`flex w-full items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+                                      {label}
+                                      {isActive
+                                        ? <span className="text-white">{tableSortDir === 'asc' ? ' ↑' : ' ↓'}</span>
+                                        : <span className="opacity-30">↕</span>}
+                                    </span>
+                                  ) : null}
                                 </th>
                               )
                             })}
@@ -2456,6 +2834,7 @@ export default function App() {
                         <tbody>
                           {tableRows.map((m, i) => {
                             const planned = movieBudgetTotals[m.film_number] ?? 0
+                            const revenue = movieIncomeTotals[m.film_number] ?? 0
                             const adpub   = movieMarketingTotals[m.film_number] ?? 0
                             const print   = moviePrintTotals[m.film_number] ?? 0
                             const fmtCur  = (n) => n === 0 ? '—' : '₪' + n.toLocaleString('en-IL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -2473,82 +2852,247 @@ export default function App() {
                               perf === 'overspend' ? statusCfg.overspend
                               : perf === 'underspend' ? statusCfg.underspend
                               : statusCfg[effectiveBudgetStatus] ?? { label: '—', bg: '#F7F4FB', color: '#8A7BAB' }
+                            const isEditing = activeTableEditingId === m.film_number
+                            const statusEditableInRow = isEditing && activeTableDraft.statusEditable === true
+                            const rowBg = isEditing ? '#F7F2FF' : (i % 2 === 0 ? '#FAFAFE' : '#FFFFFF')
                             return (
                               <tr key={m.film_number}
-                                onClick={() => setSelectedMovie(m)}
-                                className="cursor-pointer border-b border-[rgba(74,20,140,0.07)] transition-colors hover:bg-[#F0EBFF]"
-                                style={{ background: i % 2 === 0 ? '#FAFAFE' : '#FFFFFF' }}>
+                                onClick={isEditing ? undefined : () => setSelectedMovie(m)}
+                                className={`border-b border-[rgba(74,20,140,0.07)] transition-colors ${isEditing ? 'bg-[#F7F2FF]' : 'cursor-pointer hover:bg-[#F0EBFF]'}`}
+                                style={{ background: rowBg }}>
 
                                 {/* Film names */}
-                                <td className="px-4 py-3 max-w-[220px]">
-                                  <p className="font-semibold text-[#2D1B69] leading-snug">{m.title_en || '—'}</p>
-                                  {m.title_he && (
-                                    <p className="text-[10px] text-[#9A8AB8] mt-0.5" dir="rtl" lang="he">{m.title_he}</p>
+                                <td className="px-3 py-2.5 min-w-0" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <div className="space-y-1.5">
+                                      <FilmTableInput
+                                        value={activeTableDraft.title_en}
+                                        onChange={(v) => patchActiveTableDraft('title_en', v)}
+                                        placeholder="English title"
+                                        className="text-xs"
+                                      />
+                                      <FilmTableInput
+                                        value={activeTableDraft.title_he}
+                                        onChange={(v) => patchActiveTableDraft('title_he', v)}
+                                        placeholder="שם בעברית"
+                                        dir="rtl"
+                                        className="text-xs"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <p className="font-semibold text-[#2D1B69] leading-snug">{m.title_en || '—'}</p>
+                                      {m.title_he && (
+                                        <p className="text-[10px] text-[#9A8AB8] mt-0.5" dir="rtl" lang="he">{m.title_he}</p>
+                                      )}
+                                    </>
                                   )}
                                 </td>
 
                                 {/* Film number */}
-                                <td className="px-4 py-3 whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#5B4B7A]">
-                                  {m.film_number ?? '—'}
+                                <td className="px-3 py-2.5 min-w-0" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <>
+                                      <FilmTableInput
+                                        value={activeTableDraft.film_number}
+                                        onChange={(v) => patchActiveTableDraft('film_number', v)}
+                                        placeholder="Film #"
+                                        className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
+                                      />
+                                      {activeTableDraft.film_number !== m.film_number && (
+                                        <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-600">
+                                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                                          Cascades to Adpub, expenses & income
+                                        </p>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#5B4B7A]">
+                                      {m.film_number ?? '—'}
+                                    </span>
+                                  )}
                                 </td>
 
                                 {/* Release date */}
-                                <td className="px-4 py-3 whitespace-nowrap text-[11px] text-[#5B4B7A]">
-                                  {formatReleaseDate(m.release_date) ?? '—'}
+                                <td className="px-3 py-2.5 min-w-0" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <FilmTableInput
+                                      type="date"
+                                      value={activeTableDraft.release_date}
+                                      onChange={(v) => patchActiveTableDraft('release_date', v)}
+                                      className="text-xs"
+                                    />
+                                  ) : (
+                                    <span className="whitespace-nowrap text-[11px] text-[#5B4B7A]">
+                                      {formatReleaseDate(m.release_date) ?? '—'}
+                                    </span>
+                                  )}
                                 </td>
 
                                 {/* Profit center(s) */}
-                                <td className="px-4 py-3">
-                                  <div className="flex flex-wrap gap-1">
-                                    {m.profit_center && (
-                                      <span className="rounded bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#4A148C]">
-                                        {m.profit_center}
-                                      </span>
-                                    )}
-                                    {m.profit_center_2 && (
-                                      <span className="rounded bg-[#E8F0FE] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#1E40AF]">
-                                        {m.profit_center_2}
-                                      </span>
-                                    )}
-                                    {!m.profit_center && !m.profit_center_2 && <span className="text-[#C0B8D8]">—</span>}
-                                  </div>
+                                <td className="px-3 py-2.5 min-w-0" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <div className="space-y-1.5">
+                                      <FilmTableInput
+                                        value={activeTableDraft.profit_center}
+                                        onChange={(v) => patchActiveTableDraft('profit_center', v)}
+                                        placeholder="Profit center"
+                                        className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
+                                      />
+                                      <FilmTableInput
+                                        value={activeTableDraft.profit_center_2}
+                                        onChange={(v) => patchActiveTableDraft('profit_center_2', v)}
+                                        placeholder="Profit center 2"
+                                        className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {m.profit_center && (
+                                        <span className="rounded bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#4A148C]">
+                                          {m.profit_center}
+                                        </span>
+                                      )}
+                                      {m.profit_center_2 && (
+                                        <span className="rounded bg-[#E8F0FE] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[10px] font-semibold text-[#1E40AF]">
+                                          {m.profit_center_2}
+                                        </span>
+                                      )}
+                                      {!m.profit_center && !m.profit_center_2 && <span className="text-[#C0B8D8]">—</span>}
+                                    </div>
+                                  )}
                                 </td>
 
-                                {/* Planned budget */}
-                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold text-[#2D1B69]">
-                                  {fmtCur(planned)}
+                                {/* Planned Adpub */}
+                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <FilmTableInput
+                                      value={activeTableDraft.planned ?? ''}
+                                      onChange={(v) => patchActiveTableDraft('planned', v)}
+                                      placeholder="0"
+                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums"
+                                    />
+                                  ) : (
+                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2D1B69]">
+                                      {fmtCur(planned)}
+                                    </span>
+                                  )}
                                 </td>
 
-                                {/* AdPub expenses — stacked amount + used % */}
-                                <td className="px-4 py-3 align-middle">
-                                  {(() => {
-                                    const rawRatio = planned > 0 ? (adpub / planned) * 100 : adpub > 0 ? 100 : 0
-                                    const usedLabel =
-                                      planned > 0 || adpub > 0 ? `${rawRatio.toFixed(0)}% used` : '—'
-                                    return (
-                                      <div className="flex flex-col items-end justify-center font-['JetBrains_Mono',ui-monospace,monospace]">
-                                        <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#2D1B69]">
-                                          {fmtCur(adpub)}
-                                        </span>
-                                        <span className="whitespace-nowrap pt-0.5 text-xs tabular-nums text-slate-400">
-                                          {usedLabel}
-                                        </span>
-                                      </div>
-                                    )
-                                  })()}
+                                {/* Revenue */}
+                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <FilmTableInput
+                                      value={activeTableDraft.revenue ?? ''}
+                                      onChange={(v) => patchActiveTableDraft('revenue', v)}
+                                      placeholder="0"
+                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#2FA36B]"
+                                    />
+                                  ) : (
+                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2FA36B]">
+                                      {fmtCur(revenue)}
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* AdPub expenses */}
+                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <FilmTableInput
+                                      value={activeTableDraft.adpub ?? ''}
+                                      onChange={(v) => patchActiveTableDraft('adpub', v)}
+                                      placeholder="0"
+                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums"
+                                    />
+                                  ) : (
+                                    (() => {
+                                      const rawRatio = planned > 0 ? (adpub / planned) * 100 : adpub > 0 ? 100 : 0
+                                      const usedLabel =
+                                        planned > 0 || adpub > 0 ? `${rawRatio.toFixed(0)}% used` : '—'
+                                      return (
+                                        <div className="flex flex-col items-end justify-center font-['JetBrains_Mono',ui-monospace,monospace]">
+                                          <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#2D1B69]">
+                                            {fmtCur(adpub)}
+                                          </span>
+                                          <span className="whitespace-nowrap pt-0.5 text-xs tabular-nums text-slate-400">
+                                            {usedLabel}
+                                          </span>
+                                        </div>
+                                      )
+                                    })()
+                                  )}
                                 </td>
 
                                 {/* Print expenses */}
-                                <td className="px-4 py-3 text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] text-[#7B52AB]">
-                                  {fmtCur(print)}
+                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
+                                  {isEditing ? (
+                                    <FilmTableInput
+                                      value={activeTableDraft.print ?? ''}
+                                      onChange={(v) => patchActiveTableDraft('print', v)}
+                                      placeholder="0"
+                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#7B52AB]"
+                                    />
+                                  ) : (
+                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] tabular-nums text-[#7B52AB]">
+                                      {fmtCur(print)}
+                                    </span>
+                                  )}
                                 </td>
 
                                 {/* Status */}
-                                <td className="px-4 py-3 whitespace-nowrap">
-                                  <span className="rounded-md px-2 py-0.5 text-[10px] font-bold"
-                                    style={{ background: sc.bg, color: sc.color }}>
-                                    {sc.label}
-                                  </span>
+                                <td
+                                  className="min-w-0 align-top px-3 py-2.5 pr-2"
+                                  onClick={(e) => isEditing && e.stopPropagation()}
+                                >
+                                  {isEditing && statusEditableInRow ? (
+                                    <FilmTableSelect
+                                      value={activeTableDraft.status ?? 'plan_pre'}
+                                      onChange={(v) => patchActiveTableDraft('status', v)}
+                                      options={ACTIVE_FILMS_WORKFLOW_STATUS_OPTIONS}
+                                      className="text-xs"
+                                    />
+                                  ) : (
+                                    <span className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold whitespace-nowrap"
+                                      style={{ background: sc.bg, color: sc.color }}>
+                                      {sc.label}
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* Actions */}
+                                <td
+                                  className="min-w-0 align-top border-l border-[rgba(74,20,140,0.12)] py-2.5 pl-4 pr-3 text-right"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {isEditing ? (
+                                    <div className="flex min-h-[34px] flex-row flex-nowrap items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleActiveTableSave(m)}
+                                        disabled={activeTableSaving}
+                                        className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-[#2FA36B] px-2 py-1 text-[10px] font-semibold leading-tight text-white transition hover:bg-[#28915f] disabled:opacity-50"
+                                      >
+                                        {activeTableSaving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Save className="h-2.5 w-2.5" />}
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={cancelActiveTableEdit}
+                                        disabled={activeTableSaving}
+                                        className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-[rgba(74,20,140,0.2)] bg-white px-2 py-1 text-[10px] font-semibold leading-tight text-[#4A148C] transition hover:bg-[#F7F2FF] disabled:opacity-50"
+                                      >
+                                        <X className="h-2.5 w-2.5" /> Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => startActiveTableEdit(m)}
+                                      className="inline-flex items-center gap-1 rounded-lg border border-[rgba(74,20,140,0.2)] px-2.5 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]"
+                                    >
+                                      <Edit2 className="h-3 w-3" /> Edit
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             )
@@ -2718,7 +3262,7 @@ export default function App() {
             setBudgetRefresh(n => n + 1)
             void logActivity(
               'budget_edit',
-              'Budget updated',
+              'Adpub updated',
               film.title_en || film.title_he,
               film.film_number,
             )
@@ -2763,7 +3307,7 @@ export default function App() {
                   <ArrowLeft className="h-5 w-5" aria-hidden />
                 </button>
                 <div className="min-w-0">
-                <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Budget Overview</p>
+                <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Adpub Overview</p>
                 <h1 className="truncate font-['Montserrat',sans-serif] text-xl font-extrabold text-[#4A148C]">
                   {movieTitleEnglish(film)}
                 </h1>
@@ -2839,7 +3383,7 @@ export default function App() {
               <div className="flex shrink-0 items-center gap-2">
                 <ExcelUploadButton
                   initialType="budgets"
-                  label="Upload Budget"
+                  label="Upload Adpub"
                   contextFilm={film}
                   onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
@@ -2851,7 +3395,7 @@ export default function App() {
             <div className="shrink-0 border-b border-[rgba(74,20,140,0.1)] bg-white px-6 py-3">
               <div className="flex flex-wrap gap-3">
                 {[
-                  { label: 'Planned Budget', value: filmBudget,  color: '#4B4594' },
+                  { label: 'Planned Adpub', value: filmBudget,  color: '#4B4594' },
                   { label: 'Total Spent',    value: filmSpent,   color: '#C0392B' },
                   { label: 'Balance',        value: filmBalance, color: filmBalance >= 0 ? '#2FA36B' : '#E61E6E' },
                   { label: 'Total Revenue',  value: filmIncome,  color: '#0EA5A0' },
@@ -2866,7 +3410,7 @@ export default function App() {
                 ))}
                 {filmBalance < 0 && (
                   <div className="flex items-center rounded-xl bg-[#FFE5EC] px-4 py-2">
-                    <span className="text-sm font-bold text-[#C0004C]">⚠ Over budget by {formatCurrency(Math.abs(filmBalance))}</span>
+                    <span className="text-sm font-bold text-[#C0004C]">⚠ Over Adpub by {formatCurrency(Math.abs(filmBalance))}</span>
                   </div>
                 )}
               </div>
@@ -2879,10 +3423,10 @@ export default function App() {
                 return (
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-[#8A7BAB]">
-                      <span>Budget used</span>
+                      <span>Adpub used</span>
                       <span style={{ color: overBudget ? '#C0004C' : '#2FA36B' }}>
                         {(rawPct * 100).toFixed(1)}%
-                        {overBudget && ' — Over budget'}
+                        {overBudget && ' — Over Adpub'}
                       </span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-[#EDE8F8]">
@@ -2928,7 +3472,7 @@ export default function App() {
 
               {!budgetLoading && !budgetError && budgetRows.length === 0 && (
                 <p className="py-16 text-center text-sm text-[#8A7BAB]">
-                  No budget uploaded yet for this film. Use <span className="font-semibold text-[#4B4594]">↑ Upload Budget</span> to import the budget file.
+                  No Adpub uploaded yet for this film. Use <span className="font-semibold text-[#4B4594]">↑ Upload Adpub</span> to import the Adpub file.
                 </p>
               )}
 
@@ -3089,7 +3633,7 @@ export default function App() {
                               onClick={() => addDraftRow(code)}
                               className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]"
                             >
-                              <span className="text-base leading-none">+</span> Add Budget Line
+                              <span className="text-base leading-none">+</span> Add Adpub Line
                             </button>
                           </td>
                         </tr>
@@ -3133,7 +3677,7 @@ export default function App() {
                     addSection('Media Spend', mediaGroups)
                     addSection('Non-Media Spend', nonMediaGroups)
                   } else {
-                    addSection('Budget', visibleGroups)
+                    addSection('Adpub', visibleGroups)
                   }
 
                   // Unrecognized section
@@ -3174,8 +3718,8 @@ export default function App() {
                   ]
 
                   const wb = XLSX.utils.book_new()
-                  XLSX.utils.book_append_sheet(wb, ws, 'Budget')
-                  XLSX.writeFile(wb, `${filmTitle}_budget.xlsx`)
+                  XLSX.utils.book_append_sheet(wb, ws, 'Adpub')
+                  XLSX.writeFile(wb, `${filmTitle}_adpub.xlsx`)
                 }
 
                 return (
@@ -3187,7 +3731,7 @@ export default function App() {
                         ? 'border border-[rgba(47,163,107,0.3)] bg-[#F0FBF5] text-[#1a7a4e]'
                         : 'border border-red-200 bg-red-50 text-red-700'
                     }`}>
-                      {budgetSaveToast === 'success' ? '✓ Budget saved successfully.' : '✗ Save failed — please try again.'}
+                      {budgetSaveToast === 'success' ? '✓ Adpub saved successfully.' : '✗ Save failed — please try again.'}
                     </div>
                   )}
 
@@ -3240,7 +3784,7 @@ export default function App() {
                           </button>
                           <button type="button" onClick={startEdit}
                             className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F4F0FF]">
-                            <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Budget
+                            <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Adpub
                           </button>
                         </div>
                       ) : (
@@ -3336,7 +3880,7 @@ export default function App() {
                                     {budgetEditMode && (
                                       <button
                                         type="button"
-                                        title="Create a budget line for this expense"
+                                        title="Create an Adpub line for this expense"
                                         onClick={(e) => {
                                           e.stopPropagation()
                                           const code        = r.media_budget_code?.trim() || ''
@@ -3491,6 +4035,69 @@ export default function App() {
 
       {budgetUploadsManagerOpen && (
         <BudgetUploadsManagementModal onClose={() => setBudgetUploadsManagerOpen(false)} />
+      )}
+
+      {activeTableConfirmFnChange && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setActiveTableConfirmFnChange(null) }}
+        >
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" aria-hidden />
+          <div
+            className="relative z-10 w-full max-w-sm rounded-2xl border border-amber-200 bg-white p-6 shadow-[0_32px_64px_rgba(0,0,0,0.22)]"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+              </div>
+              <div>
+                <h3 className="font-['Montserrat',sans-serif] font-bold text-[#4B4594]">Change Film Number?</h3>
+                <p className="text-xs text-[#8A7BAB]">This will cascade to related tables</p>
+              </div>
+            </div>
+            <p className="mb-1 text-sm text-[#5B4B7A]">
+              Changing from{' '}
+              <code className="rounded bg-[#F4F1FF] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#7B52AB]">
+                {activeTableConfirmFnChange.oldFn}
+              </code>{' '}
+              to{' '}
+              <code className="rounded bg-[#F4F1FF] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-xs text-[#7B52AB]">
+                {activeTableConfirmFnChange.newFn}
+              </code>
+            </p>
+            <p className="mb-5 text-xs leading-relaxed text-[#8A7BAB]">
+              All linked rows in <strong>Adpub</strong>, <strong>Actual Expenses</strong>, and <strong>Rental Transactions</strong> will be updated to the new film number.
+            </p>
+            {activeTableSaveError && (
+              <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{activeTableSaveError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTableConfirmFnChange(null)}
+                disabled={activeTableSaving}
+                className="rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-4 py-2 text-sm font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void executeActiveTableFilmUpdate(
+                  activeTableConfirmFnChange.oldFn,
+                  activeTableConfirmFnChange.newFn,
+                  activeTableConfirmFnChange.filmPayload,
+                  activeTableConfirmFnChange.financials,
+                )}
+                disabled={activeTableSaving}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+              >
+                {activeTableSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Yes, update all tables
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {filmsManagerOpen && (

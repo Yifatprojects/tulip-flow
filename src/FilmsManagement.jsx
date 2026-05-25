@@ -262,7 +262,7 @@ export function FilmsManagementModal({ onClose }) {
                             />
                             {draft.film_number !== film.film_number && (
                               <p className="mt-1 text-[10px] text-amber-600 flex items-center gap-1">
-                                <AlertTriangle className="h-3 w-3" /> Changing this cascades to expenses, income & budgets
+                                <AlertTriangle className="h-3 w-3" /> Changing this cascades to expenses, income & Adpub
                               </p>
                             )}
                           </Cell>
@@ -398,7 +398,7 @@ export function FilmsManagementModal({ onClose }) {
               </code>
             </p>
             <p className="mb-5 text-xs leading-relaxed text-[#8A7BAB]">
-              All linked rows in <strong>Budgets</strong>, <strong>Actual Expenses</strong>, and <strong>Rental Transactions</strong> will be updated to the new film number.
+              All linked rows in <strong>Adpub</strong>, <strong>Actual Expenses</strong>, and <strong>Rental Transactions</strong> will be updated to the new film number.
               This cannot be undone automatically.
             </p>
 

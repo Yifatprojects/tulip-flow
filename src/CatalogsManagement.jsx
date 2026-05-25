@@ -235,7 +235,7 @@ function ExpensesCatalog() {
                 <TH w="w-28">Priority Code</TH>
                 <TH>Name</TH>
                 <TH w="w-32">Category</TH>
-                <TH w="w-32">Media Budget Code</TH>
+                <TH w="w-32">Media Adpub Code</TH>
                 <TH w="w-28">Reporting Code</TH>
                 <TH w="w-24">Actions</TH>
               </tr>
@@ -598,7 +598,7 @@ export function CatalogsManagementModal({ onClose, defaultTab = 'expenses' }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
 
   const TABS = [
-    { id: 'expenses', label: 'Expenses Catalog', desc: 'Manage expense categories and media budget codes' },
+    { id: 'expenses', label: 'Expenses Catalog', desc: 'Manage expense categories and media Adpub codes' },
     { id: 'rentals',  label: 'Rentals Catalog',  desc: 'Manage rental / income categories and format types' },
   ]
   const current = TABS.find(t => t.id === activeTab)

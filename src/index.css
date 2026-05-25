@@ -72,6 +72,74 @@
   }
 }
 
+/* ── Login screen — neutral plate + soft brand mist (matches logo gray field) ─ */
+@keyframes login-bg-soft {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translate3d(-1.5%, 1.5%, 0) scale(1.04);
+    opacity: 0.92;
+  }
+}
+
+@keyframes login-bg-soft-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(2%, -1.5%, 0);
+  }
+}
+
+.login-page__wash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 105% 85% at 50% -5%, rgba(200, 192, 228, 0.32), transparent 52%),
+    radial-gradient(ellipse 70% 55% at 0% 55%, rgba(160, 130, 210, 0.14), transparent 48%),
+    linear-gradient(175deg, #e4e3e9 0%, #ecebee 42%, #e8e7ee 100%);
+}
+
+.login-page__mist-a {
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(circle at 22% 24%, rgba(123, 82, 171, 0.19) 0%, transparent 42%),
+    radial-gradient(circle at 78% 18%, rgba(249, 200, 120, 0.12) 0%, transparent 36%);
+  filter: blur(52px);
+  animation: login-bg-soft 44s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.login-page__mist-b {
+  position: absolute;
+  inset: -6%;
+  background: radial-gradient(circle at 55% 50%, rgba(255, 255, 255, 0.45) 0%, transparent 34%);
+  filter: blur(28px);
+  mix-blend-mode: soft-light;
+  opacity: 0.55;
+  animation: login-bg-soft-b 52s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.login-page__edge {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 72% 65% at 50% 48%, transparent 42%, rgba(55, 40, 95, 0.055) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-page__mist-a,
+  .login-page__mist-b {
+    animation: none;
+    will-change: auto;
+  }
+}
+
 /* Hide scrollbar while keeping scroll functionality */
 .no-scrollbar {
   scrollbar-width: none;       /* Firefox */

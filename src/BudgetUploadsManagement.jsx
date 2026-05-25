@@ -132,11 +132,11 @@ export default function BudgetUploadsManagementModal({ onClose }) {
         .delete()
         .eq('film_number', batch.film_number)
       if (error) throw error
-      showToast('success', `Budget for "${batch.title}" deleted successfully.`)
+      showToast('success', `Adpub for "${batch.title}" deleted successfully.`)
       try {
         await supabase.from('activity_log').insert({
           action_type: 'budget_upload_deleted',
-          description: `Budget deleted`,
+          description: `Adpub deleted`,
           film_title:  batch.title,
           film_number: batch.film_number,
         })
@@ -164,9 +164,9 @@ export default function BudgetUploadsManagementModal({ onClose }) {
           <div className="flex items-center gap-3">
             <BookOpen className="h-5 w-5 text-[#4B4594]" aria-hidden />
             <div>
-              <h2 className="font-['Montserrat',sans-serif] text-base font-extrabold text-[#2D1B69]">Budget Upload History</h2>
+              <h2 className="font-['Montserrat',sans-serif] text-base font-extrabold text-[#2D1B69]">Adpub Upload History</h2>
               <p className="text-[11px] text-[#9A8AB8]">
-                {loading ? 'Loading…' : `${totalFilms} film${totalFilms !== 1 ? 's' : ''} with uploaded budgets`}
+                {loading ? 'Loading…' : `${totalFilms} film${totalFilms !== 1 ? 's' : ''} with uploaded Adpub`}
               </p>
             </div>
           </div>
@@ -187,7 +187,7 @@ export default function BudgetUploadsManagementModal({ onClose }) {
           )}
 
           {!loading && batches.length === 0 && (
-            <p className="py-12 text-center text-sm text-[#C0B8D8]">No budget uploads found.</p>
+            <p className="py-12 text-center text-sm text-[#C0B8D8]">No Adpub uploads found.</p>
           )}
 
           {!loading && batches.length > 0 && (
@@ -222,7 +222,7 @@ export default function BudgetUploadsManagementModal({ onClose }) {
                     onClick={() => setConfirm(batch)}
                     disabled={deleting}
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[rgba(192,0,76,0.2)] bg-white text-[#C0004C] transition hover:bg-[#FFF1F3] disabled:opacity-40"
-                    title="Delete this budget"
+                    title="Delete this Adpub"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -246,7 +246,7 @@ export default function BudgetUploadsManagementModal({ onClose }) {
             </div>
 
             <p className="mb-1 text-sm text-[#5B4B7A]">
-              Are you sure you want to delete the budget for{' '}
+              Are you sure you want to delete the Adpub for{' '}
               <strong>{confirm.title}</strong>?
             </p>
             <p className="mb-4 text-sm text-[#5B4B7A]">
