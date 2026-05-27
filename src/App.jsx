@@ -346,6 +346,99 @@ function isPrintCode(code) {
   return PRINT_PREFIXES.some((p) => s.startsWith(p))
 }
 
+const DASHBOARD_PAGE_SIZE = 1000
+
+function dashboardNormId(v) {
+  return String(v ?? '').trim()
+}
+
+function dashboardNormStudio(s) {
+  return (s === 'Other' ? 'Independent' : (s ?? '').trim())
+}
+
+async function fetchSupabaseAllRows(baseQ) {
+  let rows = []
+  let from = 0
+  while (true) {
+    const { data, error } = await baseQ.range(from, from + DASHBOARD_PAGE_SIZE - 1)
+    if (error) throw error
+    const page = data ?? []
+    rows = rows.concat(page)
+    if (page.length < DASHBOARD_PAGE_SIZE) break
+    from += DASHBOARD_PAGE_SIZE
+  }
+  return rows
+}
+
+async function buildDashboardFilmMap() {
+  const allFilms = await fetchSupabaseAllRows(
+    supabase.from('films').select('film_number, profit_center, title_en, title_he, studio'),
+  )
+  const filmMap = {}
+  for (const f of allFilms) {
+    const entry = {
+      title: f.title_en || f.title_he || f.film_number,
+      studio: dashboardNormStudio(f.studio),
+    }
+    if (dashboardNormId(f.film_number)) filmMap[dashboardNormId(f.film_number)] = entry
+    if (dashboardNormId(f.profit_center)) filmMap[dashboardNormId(f.profit_center)] = entry
+  }
+  return filmMap
+}
+
+/**
+ * Single source of truth for dashboard expense KPI + drill-down (media + print).
+ * Sums every actual_expenses row in range — no is_print filter.
+ */
+async function aggregateDashboardExpenses({ monthStart, monthEnd, monthEq, studioFilter }) {
+  const filmMap = await buildDashboardFilmMap()
+  let q = supabase
+    .from('actual_expenses')
+    .select('film_number, actual_amount, month_period, priority_code')
+  if (monthEq) q = q.eq('month_period', monthEq)
+  else if (monthStart && monthEnd) q = q.gte('month_period', monthStart).lte('month_period', monthEnd)
+
+  const rawRows = await fetchSupabaseAllRows(q)
+  const selectedLc = studioFilter ? dashboardNormStudio(studioFilter).toLowerCase() : null
+  const aggMap = new Map()
+  let total = 0
+
+  for (const r of rawRows) {
+    const studio = dashboardNormStudio(filmMap[dashboardNormId(r.film_number)]?.studio ?? 'Unknown')
+    if (selectedLc && studio.toLowerCase() !== selectedLc) continue
+    const amt = Number(r.actual_amount) || 0
+    total += amt
+    const month = r.month_period?.substring(0, 7) ?? ''
+    const key = `${month}||${studio}`
+    if (!aggMap.has(key)) aggMap.set(key, { month, studio, amount: 0, rows: 0 })
+    const entry = aggMap.get(key)
+    entry.amount += amt
+    entry.rows++
+  }
+
+  const rows = [...aggMap.values()].sort(
+    (a, b) => b.month.localeCompare(a.month) || a.studio.localeCompare(b.studio),
+  )
+  return { total, rows }
+}
+
+async function aggregateDashboardIncome({ monthStart, monthEnd, monthEq, studioFilter }) {
+  const filmMap = await buildDashboardFilmMap()
+  let q = supabase.from('rental_transactions').select('film_number, actual_amount, month_period')
+  if (monthEq) q = q.eq('month_period', monthEq)
+  else if (monthStart && monthEnd) q = q.gte('month_period', monthStart).lte('month_period', monthEnd)
+
+  const rawRows = await fetchSupabaseAllRows(q)
+  const selectedLc = studioFilter ? dashboardNormStudio(studioFilter).toLowerCase() : null
+  let total = 0
+  for (const r of rawRows) {
+    const studio = dashboardNormStudio(filmMap[dashboardNormId(r.film_number)]?.studio ?? 'Unknown')
+    if (selectedLc && studio.toLowerCase() !== selectedLc) continue
+    total += Number(r.actual_amount) || 0
+  }
+  return total
+}
+
 function currentMonthPeriod() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
@@ -770,59 +863,25 @@ function DashboardSummaryRow({ studioOptions = [] }) {
         const now          = new Date()
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
         const ytdStart     = `${now.getFullYear()}-01-01`
+        const studioFilter = summaryStudio || null
 
-        // ── Fully client-side approach (mirrors the audit — guaranteed correct) ──
-        // Fetch ALL films + ALL financial rows for the period, then filter in JS.
-        // This avoids any server-side .in() type-mismatch or ilike issues that
-        // caused Universal (and potentially other studios) to show ₪0.00.
-
-        const normId = (v) => String(v ?? '').trim()
-        const normSt = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
-
-        // Helper: paginate through any Supabase query
-        const fetchAllRows = async (baseQ, extraCols = '') => {
-          const PAGE = 1000
-          let rows = [], from = 0
-          while (true) {
-            const { data: page } = await baseQ.range(from, from + PAGE - 1)
-            rows = rows.concat(page ?? [])
-            if (!page || page.length < PAGE) break
-            from += PAGE
-          }
-          return rows
-        }
-
-        // 1. Fetch ALL films → build filmMap keyed by film_number AND profit_center
-        const allFilmsKPI = await fetchAllRows(
-          supabase.from('films').select('film_number, profit_center, studio')
-        )
-        const filmMapKPI = {}
-        for (const f of allFilmsKPI) {
-          if (normId(f.film_number))   filmMapKPI[normId(f.film_number)]   = f
-          if (normId(f.profit_center)) filmMapKPI[normId(f.profit_center)] = f
-        }
-
-        // 2. Fetch ALL financial rows for the period (no film filter)
-        const [allCurrExp, allCurrInc, allYtdExp, allYtdInc] = await Promise.all([
-          fetchAllRows(supabase.from('actual_expenses').select('film_number, actual_amount').eq('month_period', currentMonth)),
-          fetchAllRows(supabase.from('rental_transactions').select('film_number, actual_amount').eq('month_period', currentMonth)),
-          fetchAllRows(supabase.from('actual_expenses').select('film_number, actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
-          fetchAllRows(supabase.from('rental_transactions').select('film_number, actual_amount').gte('month_period', ytdStart).lte('month_period', currentMonth)),
+        const [currExp, ytdExp, currInc, ytdInc] = await Promise.all([
+          aggregateDashboardExpenses({ monthEq: currentMonth, studioFilter }),
+          aggregateDashboardExpenses({ monthStart: ytdStart, monthEnd: currentMonth, studioFilter }),
+          aggregateDashboardIncome({ monthEq: currentMonth, studioFilter }),
+          aggregateDashboardIncome({ monthStart: ytdStart, monthEnd: currentMonth, studioFilter }),
         ])
 
-        // 3. Filter client-side by studio (or include everything for "All Studios")
-        const selectedLc = summaryStudio ? normSt(summaryStudio).toLowerCase() : null
-        const matchesStudio = (row) => {
-          if (!selectedLc) return true
-          const film = filmMapKPI[normId(row.film_number)]
-          return normSt(film?.studio ?? '').toLowerCase() === selectedLc
+        if (!cancelled) {
+          setSummary({
+            currExpenses: currExp.total,
+            currIncome:   currInc,
+            ytdExpenses:  ytdExp.total,
+            ytdIncome:    ytdInc,
+          })
         }
-
-        const sum = (rows) => rows.filter(matchesStudio).reduce((s, r) => s + Number(r.actual_amount), 0)
-        if (!cancelled) setSummary({
-          currExpenses: sum(allCurrExp), currIncome: sum(allCurrInc),
-          ytdExpenses:  sum(allYtdExp),  ytdIncome:  sum(allYtdInc),
-        })
+      } catch (err) {
+        console.error('[DashboardSummary] load error', err)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -945,69 +1004,44 @@ function DashboardSummaryRow({ studioOptions = [] }) {
       const ytdStart     = `${now.getFullYear()}-01-01`
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
       const currentYear  = now.getFullYear()
+      const studioFilter = summaryStudio || null
 
-      const normId = (v) => String(v ?? '').trim()
-      const normSt = (s) => (s === 'Other' ? 'Independent' : (s ?? '').trim())
-
-      const pageAll = async (baseQ) => {
-        const PAGE = 1000; let rows = [], from = 0
-        while (true) {
-          const { data } = await baseQ.range(from, from + PAGE - 1)
-          rows = rows.concat(data ?? [])
-          if (!data || data.length < PAGE) break
-          from += PAGE
-        }
-        return rows
-      }
-
-      // 1. Fetch all films
-      const allFilms = await pageAll(
-        supabase.from('films').select('film_number, profit_center, title_en, title_he, studio')
-      )
-      const filmMap = {}
-      for (const f of allFilms) {
-        const entry = { title: f.title_en || f.title_he || f.film_number, studio: normSt(f.studio) }
-        if (normId(f.film_number))   filmMap[normId(f.film_number)]   = entry
-        if (normId(f.profit_center)) filmMap[normId(f.profit_center)] = entry
-      }
-
-      // 2. Fetch raw transactions
-      let rawRows = []
       if (type === 'revenue') {
-        rawRows = await pageAll(
-          supabase.from('rental_transactions')
+        const filmMap = await buildDashboardFilmMap()
+        const rawRows = await fetchSupabaseAllRows(
+          supabase
+            .from('rental_transactions')
             .select('film_number, actual_amount, month_period')
             .gte('month_period', ytdStart)
-            .lte('month_period', currentMonth)
+            .lte('month_period', currentMonth),
         )
+        const selectedLc = studioFilter ? dashboardNormStudio(studioFilter).toLowerCase() : null
+        const aggMap = new Map()
+        for (const r of rawRows) {
+          const studio = dashboardNormStudio(filmMap[dashboardNormId(r.film_number)]?.studio ?? 'Unknown')
+          if (selectedLc && studio.toLowerCase() !== selectedLc) continue
+          const month = r.month_period?.substring(0, 7) ?? ''
+          const key = `${month}||${studio}`
+          if (!aggMap.has(key)) aggMap.set(key, { month, studio, amount: 0, rows: 0 })
+          const entry = aggMap.get(key)
+          entry.amount += Number(r.actual_amount) || 0
+          entry.rows++
+        }
+        const rows = [...aggMap.values()].sort(
+          (a, b) => b.month.localeCompare(a.month) || a.studio.localeCompare(b.studio),
+        )
+        const total = rows.reduce((s, r) => s + r.amount, 0)
+        setDrilldown({ type, rows, total, loading: false, year: currentYear })
       } else {
-        rawRows = await pageAll(
-          supabase.from('actual_expenses')
-            .select('film_number, actual_amount, month_period, is_print')
-            .gte('month_period', ytdStart)
-            .lte('month_period', currentMonth)
-            .eq('is_print', false)
-        )
+        const { total, rows } = await aggregateDashboardExpenses({
+          monthStart: ytdStart,
+          monthEnd: currentMonth,
+          studioFilter,
+        })
+        setDrilldown({ type, rows, total, loading: false, year: currentYear })
+        // Keep KPI card in sync with the same aggregation the drill-down uses
+        setSummary((prev) => (prev ? { ...prev, ytdExpenses: total } : prev))
       }
-
-      // 3. Filter by selected studio, then aggregate by (month, studio)
-      const aggMap = new Map() // key: `month||studio`
-      for (const r of rawRows) {
-        const studio = normSt(filmMap[normId(r.film_number)]?.studio ?? 'Unknown')
-        if (summaryStudio && studio.toLowerCase() !== normSt(summaryStudio).toLowerCase()) continue
-        const month = r.month_period?.substring(0, 7) ?? ''
-        const key   = `${month}||${studio}`
-        if (!aggMap.has(key)) aggMap.set(key, { month, studio, amount: 0, rows: 0 })
-        const entry = aggMap.get(key)
-        entry.amount += Number(r.actual_amount) || 0
-        entry.rows++
-      }
-
-      const rows = [...aggMap.values()]
-      // Sort: most recent month first, then studio alphabetically
-      rows.sort((a, b) => b.month.localeCompare(a.month) || a.studio.localeCompare(b.studio))
-      const total = rows.reduce((s, r) => s + r.amount, 0)
-      setDrilldown({ type, rows, total, loading: false, year: currentYear })
     } catch (err) {
       console.error('[Drilldown] error', err)
       setDrilldown(null)
@@ -1082,9 +1116,14 @@ function DashboardSummaryRow({ studioOptions = [] }) {
               {loading ? (
                 <div className="mt-1 h-5 w-24 animate-pulse rounded bg-[#EDE8F8]" />
               ) : (
-                <p className="text-center font-['Montserrat',sans-serif] text-xl font-extrabold tabular-nums" style={{ color }}>
-                  {formatCurrency(value)}
-                </p>
+                <>
+                  <p className="text-center font-['Montserrat',sans-serif] text-xl font-extrabold tabular-nums" style={{ color }}>
+                    {formatCurrency(value)}
+                  </p>
+                  {label === 'Expenses YTD' && (
+                    <p className="mt-1 text-center text-[9px] font-medium text-[#9A8AB8]">Media &amp; print</p>
+                  )}
+                </>
               )}
             </div>
           ))}
@@ -1256,6 +1295,7 @@ function DashboardSummaryRow({ studioOptions = [] }) {
                     </h2>
                     <p className="mt-0.5 text-[11px] text-[#9A8AB8]">
                       {summaryStudio || 'All Studios'} · Jan 1 – present
+                      {!isRevenue && ' · Media & print expenses'}
                     </p>
                   </div>
                 </div>
