@@ -6,7 +6,7 @@ import {
   Receipt, RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
   UploadCloud, X, XCircle,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
@@ -202,12 +202,43 @@ function releaseDateToExcelSerial(value) {
   return (utc - Date.UTC(1899, 11, 30)) / 86400000
 }
 
+const EXCEL_NUM_FMT_COMMA_2DP = '#,##0.00'
+
+function applyExcelCellStyle(cell, patch) {
+  if (!cell) return
+  cell.s = { ...(cell.s || {}), ...patch, font: { ...(cell.s?.font || {}), ...(patch.font || {}) } }
+}
+
+function applyExcelBoldToCell(ws, r, c) {
+  const ref = XLSX.utils.encode_cell({ r, c })
+  applyExcelCellStyle(ws[ref], { font: { bold: true } })
+}
+
+function applyExcelBoldToRow(ws, rowIndex, colCount) {
+  for (let c = 0; c < colCount; c++) applyExcelBoldToCell(ws, rowIndex, c)
+}
+
+function applyExcelBoldToColumn(ws, colIndex, rowStart, rowEnd) {
+  for (let r = rowStart; r <= rowEnd; r++) applyExcelBoldToCell(ws, r, colIndex)
+}
+
 function applyExcelDateFormatToColumn(ws, colIndex, rowCount) {
   for (let r = 1; r <= rowCount; r++) {
     const ref = XLSX.utils.encode_cell({ r, c: colIndex })
     const cell = ws[ref]
     if (!cell || cell.t !== 'n') continue
     cell.z = 'dd/mm/yyyy'
+  }
+}
+
+function applyExcelNumberFormatToColumn(ws, colIndex, rowStart, rowEnd, fmt = EXCEL_NUM_FMT_COMMA_2DP) {
+  for (let r = rowStart; r <= rowEnd; r++) {
+    const ref = XLSX.utils.encode_cell({ r, c: colIndex })
+    const cell = ws[ref]
+    if (!cell || cell.v == null || cell.v === '') continue
+    if (typeof cell.v === 'number') cell.t = 'n'
+    cell.z = fmt
+    applyExcelCellStyle(cell, { numFmt: fmt })
   }
 }
 
@@ -1666,10 +1697,6 @@ export default function App() {
       profit_center:   film.profit_center   ?? '',
       profit_center_2: film.profit_center_2 ?? '',
       release_date:    film.release_date ? film.release_date.slice(0, 10) : '',
-      planned:         String(plannedVal),
-      revenue:         String(revenueVal),
-      adpub:           String(adpubVal),
-      print:           String(printVal),
       status:          perfStatus || film.budget_status || 'plan_pre',
       statusEditable,
     })
@@ -1689,18 +1716,8 @@ export default function App() {
   }, [])
 
   const buildActiveTableSaveBundle = useCallback((draft) => {
-    let planned = parseActiveTableAmount(draft.planned)
-    let adpub = parseActiveTableAmount(draft.adpub)
-    const revenue = parseActiveTableAmount(draft.revenue)
-    const print = parseActiveTableAmount(draft.print)
     const status = draft.status || 'plan_pre'
     const statusEditable = draft.statusEditable !== false
-
-    if (statusEditable && ACTIVE_FILMS_PERF_STATUSES.includes(status)) {
-      const tuned = tuneFinancialsForPerfStatus(status, planned, adpub)
-      planned = tuned.planned
-      adpub = tuned.adpub
-    }
 
     const filmPayload = {
       title_en:        draft.title_en     || null,
@@ -1713,13 +1730,10 @@ export default function App() {
       filmPayload.budget_status = status
     }
 
-    return {
-      filmPayload,
-      financials: { planned, revenue, adpub, print },
-    }
+    return { filmPayload }
   }, [])
 
-  const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload, financials) => {
+  const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload) => {
     setActiveTableSaving(true)
     setActiveTableSaveError(null)
     try {
@@ -1735,8 +1749,6 @@ export default function App() {
         const { error } = await supabase.from('films').update(filmPayload).eq('film_number', oldFn)
         if (error) throw error
       }
-
-      await syncActiveTableFinancials(newFn, financials)
 
       setMovies((prev) =>
         (prev ?? []).map((f) =>
@@ -1766,11 +1778,11 @@ export default function App() {
       setActiveTableSaveError('Film number cannot be empty.')
       return
     }
-    const { filmPayload, financials } = buildActiveTableSaveBundle(activeTableDraft)
+    const { filmPayload } = buildActiveTableSaveBundle(activeTableDraft)
     if (newFn !== oldFn) {
-      setActiveTableConfirmFnChange({ oldFn, newFn, filmPayload, financials })
+      setActiveTableConfirmFnChange({ oldFn, newFn, filmPayload })
     } else {
-      await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload, financials)
+      await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload)
     }
   }, [activeTableDraft, buildActiveTableSaveBundle, executeActiveTableFilmUpdate])
 
@@ -2198,7 +2210,16 @@ export default function App() {
       }
     })
     const ws = XLSX.utils.json_to_sheet(rows)
+    const colCount = 10
+    const lastDataRow = rows.length
+
+    applyExcelBoldToRow(ws, 0, colCount)
+    applyExcelBoldToColumn(ws, 0, 1, lastDataRow)
     applyExcelDateFormatToColumn(ws, releaseDateCol, rows.length)
+    for (const col of [5, 6, 7, 8]) {
+      applyExcelNumberFormatToColumn(ws, col, 1, lastDataRow)
+    }
+
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
     const stamp = new Date().toISOString().slice(0, 10)
@@ -3154,80 +3175,44 @@ export default function App() {
                                   )}
                                 </td>
 
-                                {/* Planned Adpub */}
-                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
-                                  {isEditing ? (
-                                    <FilmTableInput
-                                      value={activeTableDraft.planned ?? ''}
-                                      onChange={(v) => patchActiveTableDraft('planned', v)}
-                                      placeholder="0"
-                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums"
-                                    />
-                                  ) : (
-                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2D1B69]">
-                                      {fmtCur(planned)}
-                                    </span>
-                                  )}
+                                {/* Planned Adpub — read-only (journal/budget sourced) */}
+                                <td className="px-3 py-2.5 min-w-0 align-top">
+                                  <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2D1B69]">
+                                    {fmtCur(planned)}
+                                  </span>
                                 </td>
 
-                                {/* Revenue */}
-                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
-                                  {isEditing ? (
-                                    <FilmTableInput
-                                      value={activeTableDraft.revenue ?? ''}
-                                      onChange={(v) => patchActiveTableDraft('revenue', v)}
-                                      placeholder="0"
-                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#2FA36B]"
-                                    />
-                                  ) : (
-                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2FA36B]">
-                                      {fmtCur(revenue)}
-                                    </span>
-                                  )}
+                                {/* Revenue — read-only */}
+                                <td className="px-3 py-2.5 min-w-0 align-top">
+                                  <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2FA36B]">
+                                    {fmtCur(revenue)}
+                                  </span>
                                 </td>
 
-                                {/* AdPub expenses */}
-                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
-                                  {isEditing ? (
-                                    <FilmTableInput
-                                      value={activeTableDraft.adpub ?? ''}
-                                      onChange={(v) => patchActiveTableDraft('adpub', v)}
-                                      placeholder="0"
-                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums"
-                                    />
-                                  ) : (
-                                    (() => {
-                                      const rawRatio = planned > 0 ? (adpub / planned) * 100 : adpub > 0 ? 100 : 0
-                                      const usedLabel =
-                                        planned > 0 || adpub > 0 ? `${rawRatio.toFixed(0)}% used` : '—'
-                                      return (
-                                        <div className="flex flex-col items-end justify-center font-['JetBrains_Mono',ui-monospace,monospace]">
-                                          <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#2D1B69]">
-                                            {fmtCur(adpub)}
-                                          </span>
-                                          <span className="whitespace-nowrap pt-0.5 text-xs tabular-nums text-slate-400">
-                                            {usedLabel}
-                                          </span>
-                                        </div>
-                                      )
-                                    })()
-                                  )}
+                                {/* AdPub expenses — read-only */}
+                                <td className="px-3 py-2.5 min-w-0 align-top">
+                                  {(() => {
+                                    const rawRatio = planned > 0 ? (adpub / planned) * 100 : adpub > 0 ? 100 : 0
+                                    const usedLabel =
+                                      planned > 0 || adpub > 0 ? `${rawRatio.toFixed(0)}% used` : '—'
+                                    return (
+                                      <div className="flex flex-col items-end justify-center font-['JetBrains_Mono',ui-monospace,monospace]">
+                                        <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-[#2D1B69]">
+                                          {fmtCur(adpub)}
+                                        </span>
+                                        <span className="whitespace-nowrap pt-0.5 text-xs tabular-nums text-slate-400">
+                                          {usedLabel}
+                                        </span>
+                                      </div>
+                                    )
+                                  })()}
                                 </td>
 
-                                {/* Print expenses */}
-                                <td className="px-3 py-2.5 min-w-0 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
-                                  {isEditing ? (
-                                    <FilmTableInput
-                                      value={activeTableDraft.print ?? ''}
-                                      onChange={(v) => patchActiveTableDraft('print', v)}
-                                      placeholder="0"
-                                      className="text-right font-['JetBrains_Mono',ui-monospace,monospace] text-xs tabular-nums text-[#7B52AB]"
-                                    />
-                                  ) : (
-                                    <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] tabular-nums text-[#7B52AB]">
-                                      {fmtCur(print)}
-                                    </span>
-                                  )}
+                                {/* Print expenses — read-only */}
+                                <td className="px-3 py-2.5 min-w-0 align-top">
+                                  <span className="block text-right whitespace-nowrap font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] tabular-nums text-[#7B52AB]">
+                                    {fmtCur(print)}
+                                  </span>
                                 </td>
 
                                 {/* Status */}
@@ -4329,7 +4314,6 @@ export default function App() {
                   activeTableConfirmFnChange.oldFn,
                   activeTableConfirmFnChange.newFn,
                   activeTableConfirmFnChange.filmPayload,
-                  activeTableConfirmFnChange.financials,
                 )}
                 disabled={activeTableSaving}
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
