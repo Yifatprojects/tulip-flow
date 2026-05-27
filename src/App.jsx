@@ -194,6 +194,23 @@ function releaseCalendarYear(value) {
   return d ? d.getFullYear() : null
 }
 
+/** Excel serial (1900 date system) for a release_date — used in Active Films export. */
+function releaseDateToExcelSerial(value) {
+  const d = parseReleaseLocalDate(value)
+  if (!d) return null
+  const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())
+  return (utc - Date.UTC(1899, 11, 30)) / 86400000
+}
+
+function applyExcelDateFormatToColumn(ws, colIndex, rowCount) {
+  for (let r = 1; r <= rowCount; r++) {
+    const ref = XLSX.utils.encode_cell({ r, c: colIndex })
+    const cell = ws[ref]
+    if (!cell || cell.t !== 'n') continue
+    cell.z = 'dd/mm/yyyy'
+  }
+}
+
 /** Returns a human-readable relative time string, e.g. "5 min ago", "2 hrs ago" */
 function timeAgo(isoString) {
   if (!isoString) return ''
@@ -1741,6 +1758,137 @@ export default function App() {
 
   useEffect(() => { void fetchLastActions() }, [fetchLastActions])
 
+  const startBudgetEditEmpty = useCallback(() => {
+    setDraftRows([{
+      id:           `new_${Date.now()}`,
+      isNew:        true,
+      categoryName: '',
+      vendorName:   '',
+      budget:       0,
+      mediaCode:    '',
+      isMedia:      false,
+    }])
+    setBudgetEditMode(true)
+    setExpandedGroups(new Set(['__none__']))
+  }, [])
+
+  const startBudgetEditFromLoaded = useCallback(() => {
+    if (budgetRows.length === 0) {
+      startBudgetEditEmpty()
+      return
+    }
+    setDraftRows(budgetRows.map((r) => ({ ...r, isNew: false })))
+    setBudgetEditMode(true)
+    setExpandedGroups(new Set(budgetRows.map((r) => r.mediaCode || '__none__')))
+  }, [budgetRows, startBudgetEditEmpty])
+
+  const cancelBudgetEdit = useCallback(() => {
+    setBudgetEditMode(false)
+    setDraftRows([])
+    setBudgetSaveToast(null)
+  }, [])
+
+  const patchBudgetDraftField = useCallback((rowId, field, value) => {
+    setDraftRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)),
+    )
+  }, [])
+
+  const addBudgetDraftRow = useCallback(() => {
+    setDraftRows((prev) => [
+      ...prev,
+      {
+        id:           `new_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        isNew:        true,
+        categoryName: '',
+        vendorName:   '',
+        budget:       0,
+        mediaCode:    '',
+        isMedia:      false,
+      },
+    ])
+  }, [])
+
+  const addBudgetDraftRowWithPrefill = useCallback((prefill = {}) => {
+    setDraftRows((prev) => [
+      ...prev,
+      {
+        id:           `new_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        isNew:        true,
+        categoryName: prefill.categoryName ?? '',
+        vendorName:   prefill.vendorName ?? '',
+        budget:       prefill.budget ?? 0,
+        mediaCode:    prefill.mediaCode ?? '',
+        isMedia:      prefill.isMedia ?? false,
+      },
+    ])
+  }, [])
+
+  const saveBudgetEdit = useCallback(async () => {
+    const film = selectedMovie
+    if (!film?.film_number) return
+
+    const namedRows = draftRows.filter((r) => r.categoryName?.trim())
+    if (namedRows.length === 0) {
+      setBudgetSaveToast('error')
+      setTimeout(() => setBudgetSaveToast(null), 3500)
+      return
+    }
+
+    setBudgetSaving(true)
+    setBudgetSaveToast(null)
+    try {
+      const existing = draftRows.filter((r) => !r.isNew && r.id)
+      for (const r of existing) {
+        const { error } = await supabase
+          .from('budgets')
+          .update({
+            budget_item_name:  r.categoryName || '',
+            vendor_name:       r.vendorName || null,
+            planned_amount:    Number(r.budget) || 0,
+            media_budget_code: r.mediaCode || null,
+            is_media:          r.isMedia,
+          })
+          .eq('id', r.id)
+        if (error) throw new Error(error.message)
+      }
+
+      const newRows = draftRows.filter((r) => r.isNew && r.categoryName?.trim())
+      if (newRows.length > 0) {
+        const rowsToInsert = newRows.map((r) => ({
+          film_number:       film.film_number,
+          budget_item_name:  r.categoryName.trim(),
+          vendor_name:       r.vendorName || null,
+          planned_amount:    Number(r.budget) || 0,
+          media_budget_code: r.mediaCode || null,
+          is_media:          r.isMedia,
+        }))
+        const { error } = await supabase.from('budgets').insert(rowsToInsert)
+        if (error) throw new Error(error.message)
+      }
+
+      setBudgetSaveToast('success')
+      setBudgetEditMode(false)
+      setDraftRows([])
+      setBudgetRefresh((n) => n + 1)
+      void logActivity(
+        'budget_edit',
+        'Adpub updated',
+        film.title_en || film.title_he,
+        film.film_number,
+      )
+      void fetchLastActions()
+      void refreshMovies()
+      setTimeout(() => setBudgetSaveToast(null), 3500)
+    } catch (err) {
+      console.error('Budget save error:', err)
+      setBudgetSaveToast('error')
+      setTimeout(() => setBudgetSaveToast(null), 3500)
+    } finally {
+      setBudgetSaving(false)
+    }
+  }, [selectedMovie, draftRows, logActivity, fetchLastActions, refreshMovies])
+
   useEffect(() => {
     if (!selectedMovie) {
       setBudgetRows([])
@@ -1983,6 +2131,7 @@ export default function App() {
       underspend: '↓ Under',
       overspend: '⚠ Over',
     }
+    const releaseDateCol = 3
     const rows = sortedActiveFilmsTableRows.map((m) => {
       const planned = movieBudgetTotals[m.film_number] ?? 0
       const revenue = movieIncomeTotals[m.film_number] ?? 0
@@ -1994,11 +2143,12 @@ export default function App() {
       if (perf === 'overspend') statusCell = statusLabels.overspend
       else if (perf === 'underspend') statusCell = statusLabels.underspend
       else statusCell = statusLabels[m.budget_status || 'plan_pre'] ?? '—'
+      const releaseSerial = releaseDateToExcelSerial(m.release_date)
       return {
         'Film (English)': m.title_en || '',
         'Film (Hebrew)': m.title_he || '',
         'Film #': m.film_number ?? '',
-        'Release Date': formatReleaseDate(m.release_date) ?? '',
+        'Release Date': releaseSerial ?? '',
         'Profit Center': pc,
         'Planned Adpub': planned,
         'Revenue': revenue,
@@ -2008,6 +2158,7 @@ export default function App() {
       }
     })
     const ws = XLSX.utils.json_to_sheet(rows)
+    applyExcelDateFormatToColumn(ws, releaseDateCol, rows.length)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Active Films')
     const stamp = new Date().toISOString().slice(0, 10)
@@ -3143,35 +3294,6 @@ export default function App() {
         // In edit mode use draft rows; otherwise use the loaded rows
         const activeRows = budgetEditMode ? draftRows : (budgetRows ?? [])
 
-        // ── Edit helpers ─────────────────────────────────────────────────────
-        const updateDraft = (rowId, field, value) =>
-          setDraftRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r))
-
-        const addDraftRow = (mediaCode, isMediaHint = false, prefill = {}) => {
-          setDraftRows(prev => [...prev, {
-            id:           `new_${Date.now()}_${Math.random()}`,
-            isNew:        true,
-            categoryName: prefill.categoryName ?? '',
-            vendorName:   prefill.vendorName   ?? '',
-            budget:       prefill.budget       ?? 0,
-            mediaCode:    mediaCode || '',
-            isMedia:      isMediaHint,
-          }])
-          setExpandedGroups(prev => new Set([...prev, mediaCode || '__none__']))
-        }
-
-        const startEdit = () => {
-          setDraftRows((budgetRows ?? []).map(r => ({ ...r })))
-          setBudgetEditMode(true)
-          // Expand all groups so user can see and edit everything
-          setExpandedGroups(new Set((budgetRows ?? []).map(r => r.mediaCode || '__none__')))
-        }
-
-        const cancelEdit = () => {
-          setBudgetEditMode(false)
-          setDraftRows([])
-        }
-
         // ── Budget Status helpers ─────────────────────────────────────────────
         // Only the 3 manual workflow stages — user clicks to advance
         const WORKFLOW_STAGES = [
@@ -3214,66 +3336,6 @@ export default function App() {
             console.error('Status save error:', err)
           } finally {
             setBudgetStatusSaving(false)
-          }
-        }
-
-        const saveBudget = async () => {
-          setBudgetSaving(true)
-          try {
-            const existing = draftRows.filter(r => !r.isNew && r.id)
-            const newRows  = draftRows.filter(r => r.isNew)
-
-            // Update existing rows one by one — avoids upsert ON CONFLICT issue
-            // when the budgets table has no explicit unique constraint on id.
-            for (const r of existing) {
-              const { error } = await supabase
-                .from('budgets')
-                .update({
-                  budget_item_name:  r.categoryName || '',
-                  vendor_name:       r.vendorName   || null,
-                  planned_amount:    Number(r.budget) || 0,
-                  media_budget_code: r.mediaCode     || null,
-                  is_media:          r.isMedia,
-                })
-                .eq('id', r.id)
-              if (error) throw new Error(error.message)
-            }
-
-            if (newRows.length > 0) {
-              const rowsToInsert = newRows
-                .filter(r => r.categoryName?.trim())
-                .map(r => ({
-                  film_number:       film.film_number,
-                  budget_item_name:  r.categoryName.trim(),
-                  vendor_name:       r.vendorName   || null,
-                  planned_amount:    Number(r.budget) || 0,
-                  media_budget_code: r.mediaCode     || null,
-                  is_media:          r.isMedia,
-                }))
-              if (rowsToInsert.length > 0) {
-                const { error } = await supabase.from('budgets').insert(rowsToInsert)
-                if (error) throw new Error(error.message)
-              }
-            }
-
-            setBudgetSaveToast('success')
-            setBudgetEditMode(false)
-            setDraftRows([])
-            setBudgetRefresh(n => n + 1)
-            void logActivity(
-              'budget_edit',
-              'Adpub updated',
-              film.title_en || film.title_he,
-              film.film_number,
-            )
-            void fetchLastActions()
-            void refreshMovies()
-            setTimeout(() => setBudgetSaveToast(null), 3500)
-          } catch (err) {
-            console.error('Budget save error:', err)
-            setBudgetSaveToast('error')
-          } finally {
-            setBudgetSaving(false)
           }
         }
 
@@ -3470,14 +3532,153 @@ export default function App() {
                 <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{budgetError}</p>
               )}
 
-              {!budgetLoading && !budgetError && budgetRows.length === 0 && (
-                <p className="py-16 text-center text-sm text-[#8A7BAB]">
-                  No Adpub uploaded yet for this film. Use <span className="font-semibold text-[#4B4594]">↑ Upload Adpub</span> to import the Adpub file.
-                </p>
+              {!budgetLoading && !budgetError && budgetRows.length === 0 && !budgetEditMode && (
+                <div className="mx-auto max-w-xl rounded-2xl border border-[rgba(74,20,140,0.14)] bg-white p-8 shadow-[0_8px_32px_rgba(74,20,140,0.08)]">
+                  <h3 className="font-['Montserrat',sans-serif] text-base font-bold text-[#4B4594]">
+                    No Adpub data yet
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[#6A5B88]">
+                    Import a spreadsheet with <span className="font-semibold text-[#4B4594]">Upload Adpub</span> in the header above,
+                    or add line items manually below.
+                  </p>
+                  <div className="relative my-8">
+                    <div className="absolute inset-0 flex items-center" aria-hidden>
+                      <div className="w-full border-t border-[rgba(74,20,140,0.12)]" />
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-white px-3 text-[11px] font-medium uppercase tracking-wider text-[#9A8AB8]">
+                        or enter manually
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => startBudgetEditEmpty()}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[rgba(74,20,140,0.2)] bg-[#FAFAFE] px-4 py-3 text-sm font-semibold text-[#4A148C] transition hover:border-[#4B4594] hover:bg-[#F4F0FF]"
+                  >
+                    <PlusCircle className="h-4 w-4 shrink-0" aria-hidden />
+                    Add Adpub Row
+                  </button>
+                </div>
               )}
 
               {/* ── Main budget table ── */}
               {!budgetLoading && !budgetError && (budgetRows.length > 0 || budgetEditMode) && (() => {
+                // Manual entry when no Adpub loaded yet — flat editor on draft rows
+                if (budgetRows.length === 0 && budgetEditMode) {
+                  return (
+                    <>
+                      <div className="flex shrink-0 items-center justify-end gap-2 border-b border-[rgba(74,20,140,0.1)] bg-white px-6 py-3">
+                        <button
+                          type="button"
+                          onClick={cancelBudgetEdit}
+                          disabled={budgetSaving}
+                          className="rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-4 py-2 text-sm font-semibold text-[#8A7BAB] transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void saveBudgetEdit()}
+                          disabled={budgetSaving}
+                          className="inline-flex items-center gap-2 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f] disabled:opacity-50"
+                        >
+                          {budgetSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          Save Changes
+                        </button>
+                      </div>
+                      {budgetSaveToast && (
+                        <div className={`mx-6 mt-4 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                          budgetSaveToast === 'success'
+                            ? 'border border-[rgba(47,163,107,0.3)] bg-[#F0FBF5] text-[#1a7a4e]'
+                            : 'border border-red-200 bg-red-50 text-red-700'
+                        }`}>
+                          {budgetSaveToast === 'success' ? '✓ Adpub saved successfully.' : '✗ Save failed — please try again.'}
+                        </div>
+                      )}
+                      <div className="px-6 py-6">
+                        <p className="mb-4 text-sm leading-relaxed text-[#6A5B88]">
+                          Enter planned amounts for each line item, then save. You can add more rows with the button below.
+                        </p>
+                        <div className="overflow-hidden rounded-xl border border-[rgba(74,20,140,0.14)] bg-white shadow-sm">
+                          <table className="w-full border-collapse text-sm">
+                            <thead>
+                              <tr className="bg-[#F7F2FF]">
+                                {['Item name', 'Vendor', 'Planned (₪)', 'Media code', 'Media?'].map((h) => (
+                                  <th key={h} className="px-3 py-2 text-left text-[0.6rem] font-bold uppercase tracking-wider text-[#8A7BAB]">
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {draftRows.map((row) => (
+                                <tr key={row.id} className="border-t border-[rgba(74,20,140,0.08)]">
+                                  <td className="p-2">
+                                    <input
+                                      type="text"
+                                      value={row.categoryName}
+                                      onChange={(e) => patchBudgetDraftField(row.id, 'categoryName', e.target.value)}
+                                      placeholder="Category / item name"
+                                      className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] px-2 py-1.5 text-sm outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+                                    />
+                                  </td>
+                                  <td className="p-2">
+                                    <input
+                                      type="text"
+                                      value={row.vendorName}
+                                      onChange={(e) => patchBudgetDraftField(row.id, 'vendorName', e.target.value)}
+                                      placeholder="Vendor"
+                                      className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] px-2 py-1.5 text-sm outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+                                    />
+                                  </td>
+                                  <td className="p-2">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="100"
+                                      value={row.budget}
+                                      onChange={(e) => patchBudgetDraftField(row.id, 'budget', Number(e.target.value))}
+                                      className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+                                    />
+                                  </td>
+                                  <td className="p-2">
+                                    <input
+                                      type="text"
+                                      value={row.mediaCode}
+                                      onChange={(e) => patchBudgetDraftField(row.id, 'mediaCode', e.target.value)}
+                                      placeholder="Code"
+                                      className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] px-2 py-1.5 font-mono text-xs outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+                                    />
+                                  </td>
+                                  <td className="p-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={row.isMedia === true}
+                                      onChange={(e) => patchBudgetDraftField(row.id, 'isMedia', e.target.checked)}
+                                      className="h-4 w-4 rounded border-[rgba(74,20,140,0.3)] text-[#4B4594]"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="border-t border-[rgba(74,20,140,0.1)] p-3">
+                            <button
+                              type="button"
+                              onClick={addBudgetDraftRow}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#EDE8F8]"
+                            >
+                              <PlusCircle className="h-3.5 w-3.5" />
+                              Add Adpub Row
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )
+                }
+
                 const hasMediaFlag = activeRows.some(r => r.isMedia !== null && r.isMedia !== undefined)
 
                 // Determine dominant media type for a group by majority vote
@@ -3538,7 +3739,7 @@ export default function App() {
                   <input
                     type={type}
                     value={type === 'number' ? (row[field] ?? 0) : (row[field] ?? '')}
-                    onChange={e => updateDraft(row.id, field, type === 'number' ? Number(e.target.value) : e.target.value)}
+                    onChange={e => patchBudgetDraftField(row.id, field, type === 'number' ? Number(e.target.value) : e.target.value)}
                     className="w-full rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
                     placeholder={field === 'categoryName' ? 'Item name…' : field === 'vendorName' ? 'Vendor…' : '0'}
                   />
@@ -3549,7 +3750,7 @@ export default function App() {
                     type="button"
                     title={row.isMedia === true ? 'Media' : row.isMedia === false ? 'Non-Media' : 'Unknown'}
                     onClick={() => {
-                      updateDraft(row.id, 'isMedia', row.isMedia !== true)
+                      patchBudgetDraftField(row.id, 'isMedia', row.isMedia !== true)
                     }}
                     className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition ${
                       row.isMedia === true  ? 'bg-[#BFDBFE] text-[#1D4ED8]' :
@@ -3613,7 +3814,7 @@ export default function App() {
                                   min="0"
                                   step="100"
                                   value={row.budget ?? 0}
-                                  onChange={e => updateDraft(row.id, 'budget', Number(e.target.value))}
+                                  onChange={e => patchBudgetDraftField(row.id, 'budget', Number(e.target.value))}
                                   className="w-28 rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-right text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
                                 />
                               : <span className="font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">{formatCurrency(row.budget)}</span>
@@ -3630,7 +3831,7 @@ export default function App() {
                           <td colSpan={5} className="px-4 py-1.5">
                             <button
                               type="button"
-                              onClick={() => addDraftRow(code)}
+                              onClick={() => addBudgetDraftRow()}
                               className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]"
                             >
                               <span className="text-base leading-none">+</span> Add Adpub Line
@@ -3782,18 +3983,18 @@ export default function App() {
                             className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#2FA36B] transition hover:bg-[#F0FBF5]">
                             <Download className="h-3.5 w-3.5" aria-hidden /> Export
                           </button>
-                          <button type="button" onClick={startEdit}
+                          <button type="button" onClick={() => startBudgetEditFromLoaded()}
                             className="flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F4F0FF]">
                             <Edit2 className="h-3.5 w-3.5" aria-hidden /> Edit Adpub
                           </button>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <button type="button" onClick={cancelEdit} disabled={budgetSaving}
+                          <button type="button" onClick={() => cancelBudgetEdit()} disabled={budgetSaving}
                             className="rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#8A7BAB] transition hover:bg-slate-50 disabled:opacity-50">
                             Cancel
                           </button>
-                          <button type="button" onClick={saveBudget} disabled={budgetSaving}
+                          <button type="button" onClick={() => void saveBudgetEdit()} disabled={budgetSaving}
                             className="flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-[#28915f] disabled:opacity-50">
                             {budgetSaving
                               ? <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Saving…</>
@@ -3885,12 +4086,13 @@ export default function App() {
                                           e.stopPropagation()
                                           const code        = r.media_budget_code?.trim() || ''
                                           const isMediaHint = r.expense_type === 'מדיה'
-                                          addDraftRow(code, isMediaHint, {
+                                          addBudgetDraftRowWithPrefill({
                                             categoryName: r.expense_description || r.priority_code || '',
                                             vendorName:   r.studio_name || '',
                                             budget:       Number(r.actual_amount) || 0,
+                                            mediaCode:    code,
+                                            isMedia:      isMediaHint,
                                           })
-                                          setExpandedGroups(prev => new Set([...prev, code || '__none__']))
                                         }}
                                         className="ml-2 rounded bg-rose-200 px-1.5 py-0.5 text-[9px] font-bold text-rose-800 hover:bg-rose-300"
                                       >
