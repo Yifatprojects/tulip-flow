@@ -39,11 +39,12 @@ function FilmTableInput({ value, onChange, placeholder, className = '', dir, typ
   )
 }
 
-function FilmTableSelect({ value, onChange, options, className = '' }) {
+function FilmTableSelect({ value, onChange, options, className = '', dir = 'ltr' }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      dir={dir}
       onClick={(e) => e.stopPropagation()}
       className={`w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 ${className}`}
     >
@@ -333,6 +334,29 @@ function KpiSummaryCards({ totalBudget, totalActual, scopeLabel, className = 'mt
  * Fetch budget vs actual figures for a single film, grouped by category text.
  * Queries the new `budgets` and `expenses` tables (both keyed by film_number).
  */
+/** Distinct media_budget_code values from the expenses catalog (for Adpub manual entry). */
+async function fetchExpenseMediaBudgetCodes() {
+  const PAGE = 1000
+  let rows = []
+  let from = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('media_budget_code')
+      .not('media_budget_code', 'is', null)
+      .neq('media_budget_code', '')
+      .range(from, from + PAGE - 1)
+    if (error) throw error
+    const page = data ?? []
+    rows = rows.concat(page)
+    if (page.length < PAGE) break
+    from += PAGE
+  }
+  return [...new Set(rows.map((r) => String(r.media_budget_code).trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  )
+}
+
 async function fetchBudgetRows(filmNumber) {
   const fullRes = await supabase
     .from('budgets')
@@ -685,17 +709,17 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
     <button
       type="button"
       onClick={onSelect}
-      className={`group relative w-full rounded-xl border p-3.5 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(75,69,148,0.5)] ${
+      className={`group relative w-full rounded-xl border p-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[rgba(75,69,148,0.5)] ${
         isSelected
           ? 'border-[rgba(249,178,51,0.75)] bg-white shadow-[0_0_0_1px_rgba(249,178,51,0.45),0_12px_28px_rgba(249,178,51,0.24)]'
           : 'border-[rgba(123,82,171,0.24)] bg-white hover:border-[rgba(249,178,51,0.6)] hover:bg-[#FFFDF6] hover:shadow-[0_10px_22px_rgba(123,82,171,0.14)]'
       }`}
     >
       {/* Title row */}
-      <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-start gap-1.5">
-            <h3 className="break-words font-['Montserrat',sans-serif] text-sm font-bold leading-snug text-[#F9B233]" dir="auto">
+            <h3 className="break-words font-['Montserrat',sans-serif] text-[15px] font-bold leading-snug text-[#4A148C]" dir="auto">
               {movieTitleEnglish(movie)}
             </h3>
             {isOverBudget && (
@@ -711,30 +735,34 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
           )}
           <p className="mt-0.5 text-[10px] text-[#6A5B88]">{movieStudioAndCodeLabel(movie)}</p>
           {/* Profit center + release date chips */}
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            {movie.profit_center && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
-                PC {movie.profit_center}
-              </span>
+          <div className="mt-1 flex items-center gap-1.5 overflow-hidden">
+            {(movie.profit_center || formatReleaseDate(movie.release_date)) && (
+              <div className="inline-flex min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap">
+                {movie.profit_center && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
+                    PC {movie.profit_center}
+                  </span>
+                )}
+                {formatReleaseDate(movie.release_date) && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[9px] font-semibold text-[#E65100]">
+                    <Calendar className="h-2.5 w-2.5" aria-hidden />
+                    {formatReleaseDate(movie.release_date)}
+                  </span>
+                )}
+              </div>
             )}
             {movie.profit_center_2 && (
               <span className="inline-flex items-center gap-1 rounded-md bg-[#EDE8F8] px-1.5 py-0.5 font-['JetBrains_Mono',ui-monospace,monospace] text-[9px] font-semibold text-[#4A148C]">
                 PC2 {movie.profit_center_2}
               </span>
             )}
-            {formatReleaseDate(movie.release_date) && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[9px] font-semibold text-[#E65100]">
-                <Calendar className="h-2.5 w-2.5" aria-hidden />
-                {formatReleaseDate(movie.release_date)}
-              </span>
-            )}
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-['Montserrat',sans-serif] text-sm font-bold tabular-nums text-[#4B4594]">
+          <p className="font-['Montserrat',sans-serif] text-[15px] font-bold tabular-nums text-[#4B4594]">
             {formatCurrency(totalBudget)}
           </p>
-          <p className="text-[9px] text-[#8A7BAB]">Planned Adpub</p>
+          <p className="text-[8px] uppercase tracking-[0.08em] text-[#9A8AB8]">Planned</p>
         </div>
       </div>
 
@@ -754,8 +782,8 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
       </div>
 
       {/* Spent / progress label */}
-      <div className="mb-2 flex items-center justify-between text-[10px] text-[#8A7BAB]">
-        <span>Adpub expenses <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
+      <div className="mb-1.5 flex items-center justify-between text-[10px] text-[#8A7BAB]">
+        <span>Spent <span className="font-semibold tabular-nums text-[#6A5B88]">{formatCurrency(actualSpent)}</span></span>
         <span
           className="font-semibold tabular-nums"
           style={{ color: isOverBudget ? '#C0004C' : isAt80 ? '#D97706' : '#2FA36B' }}
@@ -765,15 +793,15 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
       </div>
 
       {/* Revenue / Print breakdown */}
-      <div className="mb-2 grid grid-cols-2 gap-1.5">
-        <div className="rounded-lg bg-[#F0FBF5] px-2 py-1.5">
-          <p className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2FA36B]">Revenue</p>
+      <div className="mb-1.5 grid grid-cols-2 gap-1.5">
+        <div className="rounded-md border border-[#D8F3E5] bg-[#F7FDF9] px-2 py-1.5">
+          <p className="text-[8px] font-semibold uppercase tracking-[0.1em] text-[#2FA36B]">Revenue</p>
           <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#2FA36B]">
             {formatCurrency(revenue)}
           </p>
         </div>
-        <div className="rounded-lg bg-[#FFF1F3] px-2 py-1.5">
-          <p className="text-[8px] font-bold tracking-[0.14em] text-[#BE123C]">Print expenses</p>
+        <div className="rounded-md border border-[#FFD8E2] bg-[#FFFAFB] px-2 py-1.5">
+          <p className="text-[8px] font-semibold uppercase tracking-[0.1em] text-[#BE123C]">Print</p>
           <p className="font-['JetBrains_Mono',ui-monospace,monospace] text-[11px] font-semibold tabular-nums text-[#BE123C]">
             {formatCurrency(printSpent)}
           </p>
@@ -782,7 +810,7 @@ function SortableMovieCard({ movie, totalBudget, actualSpent, revenue, printSpen
 
       {/* Monthly snapshot */}
       {latestMonthLabel && (latestMonthExpenses > 0 || latestMonthIncome > 0) && (
-        <div className="mt-1 flex items-center gap-2 rounded-lg bg-[#F7F4FC] px-2.5 py-1.5">
+        <div className="mt-1 flex items-center gap-2 rounded-md bg-[#F7F4FC] px-2 py-1.5">
           <BookOpen className="h-3 w-3 shrink-0 text-[#4B4594]" aria-hidden />
           <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{latestMonthLabel}</span>
           {latestMonthExpenses > 0 && (
@@ -1547,6 +1575,9 @@ export default function App() {
   const [budgetSaving, setBudgetSaving] = useState(false)
   const [budgetSaveToast, setBudgetSaveToast] = useState(null) // 'success' | 'error' | null
   const [budgetStatusSaving, setBudgetStatusSaving] = useState(false)
+  const [adpubMediaCodeOptions, setAdpubMediaCodeOptions] = useState([])
+  const [adpubMediaCodeOptionsLoading, setAdpubMediaCodeOptionsLoading] = useState(false)
+  const [openMediaCodeRowId, setOpenMediaCodeRowId] = useState(null)
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -1733,7 +1764,7 @@ export default function App() {
     return { filmPayload }
   }, [])
 
-  const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload) => {
+  const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload, actionMeta = {}) => {
     setActiveTableSaving(true)
     setActiveTableSaveError(null)
     try {
@@ -1759,6 +1790,26 @@ export default function App() {
         if (!prev || prev.film_number !== oldFn) return prev
         return { ...prev, ...filmPayload, film_number: newFn }
       })
+      if (actionMeta.releaseDateChanged) {
+        const fromLabel = actionMeta.prevReleaseDate || '—'
+        const toLabel = actionMeta.nextReleaseDate || '—'
+        void supabase.from('activity_log').insert({
+          action_type: 'release_date_edit',
+          description: `Release date updated: ${fromLabel} → ${toLabel}`,
+          film_title: actionMeta.filmTitle || null,
+          film_number: newFn,
+        })
+        setLastActions((prev) => ([
+          {
+            id: `tmp_release_${Date.now()}`,
+            action_type: 'release_date_edit',
+            description: `Release date updated: ${fromLabel} → ${toLabel}`,
+            film_title: actionMeta.filmTitle || null,
+            created_at: new Date().toISOString(),
+          },
+          ...(prev ?? []),
+        ].slice(0, LAST_ACTIONS_FEED_LIMIT)))
+      }
       setActiveTableDraft({})
       setActiveTableConfirmFnChange(null)
       setActiveTableEditingId(null)
@@ -1779,10 +1830,18 @@ export default function App() {
       return
     }
     const { filmPayload } = buildActiveTableSaveBundle(activeTableDraft)
+    const prevReleaseDate = originalFilm.release_date ? String(originalFilm.release_date).slice(0, 10) : ''
+    const nextReleaseDate = activeTableDraft.release_date ? String(activeTableDraft.release_date).slice(0, 10) : ''
+    const actionMeta = {
+      releaseDateChanged: prevReleaseDate !== nextReleaseDate,
+      prevReleaseDate: prevReleaseDate || null,
+      nextReleaseDate: nextReleaseDate || null,
+      filmTitle: originalFilm.title_en || originalFilm.title_he || null,
+    }
     if (newFn !== oldFn) {
-      setActiveTableConfirmFnChange({ oldFn, newFn, filmPayload })
+      setActiveTableConfirmFnChange({ oldFn, newFn, filmPayload, actionMeta })
     } else {
-      await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload)
+      await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload, actionMeta)
     }
   }, [activeTableDraft, buildActiveTableSaveBundle, executeActiveTableFilmUpdate])
 
@@ -1840,10 +1899,41 @@ export default function App() {
     setBudgetSaveToast(null)
   }, [])
 
+  useEffect(() => {
+    if (!budgetEditMode || budgetRows.length > 0) return
+    let cancelled = false
+    async function loadMediaCodes() {
+      setAdpubMediaCodeOptionsLoading(true)
+      try {
+        const codes = await fetchExpenseMediaBudgetCodes()
+        if (!cancelled) setAdpubMediaCodeOptions(codes)
+      } catch (err) {
+        console.error('[Adpub] media code catalog load failed:', err)
+        if (!cancelled) setAdpubMediaCodeOptions([])
+      } finally {
+        if (!cancelled) setAdpubMediaCodeOptionsLoading(false)
+      }
+    }
+    void loadMediaCodes()
+    return () => { cancelled = true }
+  }, [budgetEditMode, budgetRows.length])
+
+  const adpubMediaCodeSearchOptions = useMemo(() => {
+    const extra = draftRows.map((r) => r.mediaCode?.trim()).filter(Boolean)
+    const codes = [...new Set([...adpubMediaCodeOptions, ...extra])].sort((a, b) =>
+      a.localeCompare(b, 'he', { sensitivity: 'base' }),
+    )
+    return codes
+  }, [adpubMediaCodeOptions, adpubMediaCodeOptionsLoading, draftRows])
+
   const patchBudgetDraftField = useCallback((rowId, field, value) => {
     setDraftRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)),
     )
+  }, [])
+
+  const removeBudgetDraftRow = useCallback((rowId) => {
+    setDraftRows((prev) => prev.filter((r) => r.id !== rowId))
   }, [])
 
   const addBudgetDraftRow = useCallback(() => {
@@ -1859,6 +1949,11 @@ export default function App() {
         isMedia:      false,
       },
     ])
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      next.add('__none__')
+      return next
+    })
   }, [])
 
   const addBudgetDraftRowWithPrefill = useCallback((prefill = {}) => {
@@ -1874,6 +1969,11 @@ export default function App() {
         isMedia:      prefill.isMedia ?? false,
       },
     ])
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      next.add((prefill.mediaCode || '').trim() || '__none__')
+      return next
+    })
   }, [])
 
   const saveBudgetEdit = useCallback(async () => {
@@ -1890,6 +1990,15 @@ export default function App() {
     setBudgetSaving(true)
     setBudgetSaveToast(null)
     try {
+      const draftExistingIds = new Set(
+        draftRows.filter((r) => !r.isNew && r.id).map((r) => String(r.id)),
+      )
+      const deletedRows = (budgetRows ?? []).filter((r) => r.id && !draftExistingIds.has(String(r.id)))
+      for (const r of deletedRows) {
+        const { error } = await supabase.from('budgets').delete().eq('id', r.id)
+        if (error) throw new Error(error.message)
+      }
+
       const existing = draftRows.filter((r) => !r.isNew && r.id)
       for (const r of existing) {
         const { error } = await supabase
@@ -1939,7 +2048,7 @@ export default function App() {
     } finally {
       setBudgetSaving(false)
     }
-  }, [selectedMovie, draftRows, logActivity, fetchLastActions, refreshMovies])
+  }, [selectedMovie, draftRows, budgetRows, logActivity, fetchLastActions, refreshMovies])
 
   useEffect(() => {
     if (!selectedMovie) {
@@ -1955,6 +2064,9 @@ export default function App() {
       setIncomeError(null)
       setExpandedGroups(new Set())
       setBudgetFilter('all')
+      setAdpubMediaCodeOptions([])
+      setAdpubMediaCodeOptionsLoading(false)
+      setOpenMediaCodeRowId(null)
       return
     }
 
@@ -2684,6 +2796,7 @@ export default function App() {
                           }
                           const cfgMap = {
                             status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
+                            release_date_edit:     { Icon: Calendar,    iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Release date updated for' },
                             budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Adpub uploaded for' },
                             budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Adpub edited for' },
                             movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New film added' },
@@ -3381,157 +3494,129 @@ export default function App() {
         return (
           <div className="fixed inset-0 z-50 flex flex-col bg-[#F7F4FB]" role="dialog" aria-modal="true">
 
-            {/* ── Sticky header bar ── */}
-            <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[rgba(74,20,140,0.14)] bg-white px-6 py-4 shadow-sm">
-              <div className="flex min-w-0 items-center gap-3">
-                {/* Back arrow */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedMovie(null)}
-                  aria-label="Back to Dashboard"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#4A148C] transition hover:bg-[#EDE8F8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
-                >
-                  <ArrowLeft className="h-5 w-5" aria-hidden />
-                </button>
-                <div className="min-w-0">
-                <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[#8A7BAB]">Adpub Overview</p>
-                <h1 className="truncate font-['Montserrat',sans-serif] text-xl font-extrabold text-[#4A148C]">
-                  {movieTitleEnglish(film)}
-                </h1>
-                {movieTitleHebrewSubtitle(film) && (
-                  <p className="text-sm text-[#9A8AB8]" lang="he">{movieTitleHebrewSubtitle(film)}</p>
-                )}
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#6A5B88]">
-                  {movieStudioAndCodeLabel(film)}
-                  {film.profit_center && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
-                  {film.profit_center_2 && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC2 {film.profit_center_2}</span>}
-                  {formatReleaseDate(film.release_date) && (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[10px] font-semibold text-[#E65100]">
-                      <Calendar className="h-2.5 w-2.5" aria-hidden />
-                      {formatReleaseDate(film.release_date)}
-                    </span>
-                  )}
-                </p>
+            {/* ── Compact dashboard header ── */}
+            <div className="shrink-0 border-b border-[rgba(74,20,140,0.14)] bg-white px-5 py-2 shadow-sm">
+              {(() => {
+                const perfStatus = computePerfStatus()
+                const manualStatus = film.budget_status || 'plan_pre'
+                const rawPct = filmBudget > 0 ? filmSpent / filmBudget : 0
+                const barPct = Math.min(rawPct, 1)
+                const overBudget = filmSpent > filmBudget
+                const kpis = [
+                  { label: 'Planned', value: filmBudget, color: '#4B4594' },
+                  { label: 'Spent', value: filmSpent, color: '#C0392B' },
+                  { label: 'Balance', value: filmBalance, color: filmBalance >= 0 ? '#2FA36B' : '#E61E6E' },
+                  { label: 'Revenue', value: filmIncome, color: '#0EA5A0' },
+                  ...(totalPrint > 0 ? [{ label: 'Print', value: totalPrint, color: '#7B52AB' }] : []),
+                ]
+                return (
+                  <div className="flex flex-col items-stretch gap-2.5 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1 xl:pr-3">
+                      <p className="pl-9 text-[0.58rem] font-semibold uppercase tracking-[0.18em] text-[#A193C4]">Adpub Overview</p>
+                      <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMovie(null)}
+                          aria-label="Back to Dashboard"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#4A148C] transition hover:bg-[#EDE8F8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#4B4594]"
+                        >
+                          <ArrowLeft className="h-4 w-4" aria-hidden />
+                        </button>
+                        <p className="truncate font-['Montserrat',sans-serif] text-[1.06rem] font-extrabold text-[#4A148C]">
+                          {movieTitleEnglish(film)}
+                        </p>
+                      </div>
+                      {movieTitleHebrewSubtitle(film) && (
+                        <p className="mt-0.5 pl-9 text-[13px] text-[#9A8AB8]" lang="he">{movieTitleHebrewSubtitle(film)}</p>
+                      )}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-9 text-[11px] text-[#6A5B88]">
+                        {movieStudioAndCodeLabel(film)}
+                        {film.profit_center && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC {film.profit_center}</span>}
+                        {film.profit_center_2 && <span className="font-['JetBrains_Mono',ui-monospace,monospace] text-[#7B52AB]">PC2 {film.profit_center_2}</span>}
+                        {formatReleaseDate(film.release_date) && (
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[#FFF3E0] px-1.5 py-0.5 text-[10px] font-semibold text-[#E65100]">
+                            <Calendar className="h-2.5 w-2.5" aria-hidden />
+                            {formatReleaseDate(film.release_date)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-9">
+                        <div className="flex items-center gap-0.5 rounded-lg bg-[#F0EBFF] p-0.5">
+                          {WORKFLOW_STAGES.map(({ key, label }) => {
+                            const isActive = manualStatus === key
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                disabled={budgetStatusSaving}
+                                onClick={() => !budgetStatusSaving && saveWorkflowStatus(key)}
+                                style={isActive ? { background: '#4B4594', color: '#fff' } : {}}
+                                className={`rounded-md px-2 py-0.5 text-[10px] font-semibold transition-all ${isActive ? 'shadow-sm' : 'text-[#8A7BAB] hover:bg-white/60'}`}
+                              >
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        {perfStatus === 'approved' && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-[#A7F3D0] bg-[#F0FBF5] px-2 py-0.5 text-[10px] font-bold text-[#2FA36B]">✓ Approved</span>
+                        )}
+                        {perfStatus === 'underspend' && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-[#FDE68A] bg-[#FFFBEB] px-2 py-0.5 text-[10px] font-bold text-[#D97706]">↓ Underspend</span>
+                        )}
+                        {perfStatus === 'overspend' && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-[#FFBAC8] bg-[#FFF1F3] px-2 py-0.5 text-[10px] font-bold text-[#C0004C]">⚠ Overspend</span>
+                        )}
+                        {budgetStatusSaving && <span className="text-[9px] italic text-[#8A7BAB]">Saving…</span>}
+                      </div>
+                    </div>
 
-                {/* ── Budget Status Widget ── */}
-                {(() => {
-                  const perfStatus   = computePerfStatus()
-                  const manualStatus = film.budget_status || 'plan_pre'
-
-                  return (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {/* 3 manual stage pills — always purple, no perf color override */}
-                      <div className="flex items-center gap-0.5 rounded-xl bg-[#F0EBFF] p-0.5">
-                        {WORKFLOW_STAGES.map(({ key, label }) => {
-                          const isActive = manualStatus === key
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              disabled={budgetStatusSaving}
-                              onClick={() => !budgetStatusSaving && saveWorkflowStatus(key)}
-                              style={isActive ? { background: '#4B4594', color: '#fff' } : {}}
-                              className={`rounded-lg px-2.5 py-1 text-[10px] font-semibold transition-all
-                                ${isActive ? 'shadow-sm' : 'text-[#8A7BAB] hover:bg-white/60'}`}
-                            >
-                              {label}
-                            </button>
-                          )
-                        })}
+                    <div className="w-full rounded-xl border border-[rgba(74,20,140,0.12)] bg-[#FCFBFF] p-2 xl:w-auto xl:min-w-[560px]">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <ExcelUploadButton
+                          initialType="budgets"
+                          label="Upload Adpub"
+                          contextFilm={film}
+                          onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#2FA36B] px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
+                        />
                       </div>
 
-                      {/* Auto performance badge — computed from live data */}
-                      {perfStatus === 'approved' && (
-                        <span style={{ background: '#F0FBF5', color: '#2FA36B', borderColor: '#A7F3D0' }}
-                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
-                          ✓ Approved
-                        </span>
-                      )}
-                      {perfStatus === 'underspend' && (
-                        <span style={{ background: '#FFFBEB', color: '#D97706', borderColor: '#FDE68A' }}
-                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
-                          ↓ Underspend
-                        </span>
-                      )}
-                      {perfStatus === 'overspend' && (
-                        <span style={{ background: '#FFF1F3', color: '#C0004C', borderColor: '#FFBAC8' }}
-                          className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-bold">
-                          ⚠ Overspend
-                        </span>
-                      )}
-                      {budgetStatusSaving && (
-                        <span className="text-[9px] italic text-[#8A7BAB]">Saving…</span>
-                      )}
-                    </div>
-                  )
-                })()}
-                </div>{/* end inner title block */}
-              </div>{/* end left flex group */}
-              <div className="flex shrink-0 items-center gap-2">
-                <ExcelUploadButton
-                  initialType="budgets"
-                  label="Upload Adpub"
-                  contextFilm={film}
-                  onUploadSuccess={() => { setBudgetRefresh(n => n + 1); void refreshMovies() }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#2FA36B] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#28915f]"
-                />
-              </div>
-            </div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-5">
+                        {kpis.map(({ label, value, color }) => (
+                          <div key={label} className="rounded-md border border-[rgba(74,20,140,0.1)] bg-[#F7F2FF] px-2 py-1 text-right">
+                            <p className="text-[0.48rem] font-semibold uppercase tracking-[0.12em] text-[#8A7BAB]">{label}</p>
+                            <p className="font-['Montserrat',sans-serif] text-[11px] font-extrabold tabular-nums" style={{ color }}>
+                              {formatCurrency(value)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
 
-            {/* ── KPI strip ── */}
-            <div className="shrink-0 border-b border-[rgba(74,20,140,0.1)] bg-white px-6 py-3">
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { label: 'Planned Adpub', value: filmBudget,  color: '#4B4594' },
-                  { label: 'Total Spent',    value: filmSpent,   color: '#C0392B' },
-                  { label: 'Balance',        value: filmBalance, color: filmBalance >= 0 ? '#2FA36B' : '#E61E6E' },
-                  { label: 'Total Revenue',  value: filmIncome,  color: '#0EA5A0' },
-                  ...(totalPrint > 0 ? [{ label: 'Print Costs', value: totalPrint, color: '#7B52AB' }] : []),
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="rounded-xl border border-[rgba(74,20,140,0.1)] bg-[#F7F2FF] px-4 py-2 text-center">
-                    <p className="text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-[#8A7BAB]">{label}</p>
-                    <p className="mt-0.5 font-['Montserrat',sans-serif] text-sm font-extrabold tabular-nums" style={{ color }}>
-                      {formatCurrency(value)}
-                    </p>
-                  </div>
-                ))}
-                {filmBalance < 0 && (
-                  <div className="flex items-center rounded-xl bg-[#FFE5EC] px-4 py-2">
-                    <span className="text-sm font-bold text-[#C0004C]">⚠ Over Adpub by {formatCurrency(Math.abs(filmBalance))}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Budget progress bar ── */}
-              {filmBudget > 0 && (() => {
-                const rawPct    = filmSpent / filmBudget          // may exceed 1
-                const barPct    = Math.min(rawPct, 1)             // capped for the bar width
-                const overBudget = filmSpent > filmBudget
-                return (
-                  <div className="mt-3">
-                    <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-[#8A7BAB]">
-                      <span>Adpub used</span>
-                      <span style={{ color: overBudget ? '#C0004C' : '#2FA36B' }}>
-                        {(rawPct * 100).toFixed(1)}%
-                        {overBudget && ' — Over Adpub'}
-                      </span>
-                    </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-[#EDE8F8]">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${(barPct * 100).toFixed(1)}%`,
-                          background: overBudget
-                            ? 'linear-gradient(90deg,#E61E6E,#C0004C)'
-                            : rawPct > 0.8
-                            ? 'linear-gradient(90deg,#F59E0B,#D97706)'
-                            : 'linear-gradient(90deg,#2FA36B,#0EA5A0)',
-                        }}
-                      />
-                    </div>
-                    <div className="mt-1 flex justify-between text-[9px] text-[#A09ABB]">
-                      <span>{formatCurrency(filmSpent)} spent</span>
-                      <span>{formatCurrency(filmBudget)} planned</span>
+                      {filmBudget > 0 && (
+                        <div className="mt-1.5 rounded-md border border-[rgba(74,20,140,0.1)] bg-[#FAFAFE] px-2 py-1.5">
+                          <div className="mb-1 flex items-center justify-between text-[10px] font-semibold text-[#8A7BAB]">
+                            <span>Adpub used</span>
+                            <span style={{ color: overBudget ? '#C0004C' : '#2FA36B' }}>
+                              {(rawPct * 100).toFixed(1)}%
+                              {overBudget && ' — Over'}
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#ECE7F7]">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${(barPct * 100).toFixed(1)}%`,
+                                background: overBudget
+                                  ? 'linear-gradient(90deg,#E61E6E,#C0004C)'
+                                  : rawPct > 0.8
+                                  ? 'linear-gradient(90deg,#F59E0B,#D97706)'
+                                  : 'linear-gradient(90deg,#2FA36B,#0EA5A0)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -3545,7 +3630,7 @@ export default function App() {
                 instead so it scrolls away and the header truly pins to top:0.        */}
             <div className="flex-1 overflow-y-auto px-6 pb-20">
               {/* Spacer — scrolls away before the table header becomes sticky */}
-              <div className="h-5" aria-hidden="true" />
+              <div className="h-2" aria-hidden="true" />
 
               {budgetLoading && (
                 <div className="flex items-center justify-center py-20">
@@ -3625,11 +3710,11 @@ export default function App() {
                         <p className="mb-4 text-sm leading-relaxed text-[#6A5B88]">
                           Enter planned amounts for each line item, then save. You can add more rows with the button below.
                         </p>
-                        <div className="overflow-hidden rounded-xl border border-[rgba(74,20,140,0.14)] bg-white shadow-sm">
+                        <div className="overflow-visible rounded-xl border border-[rgba(74,20,140,0.14)] bg-white shadow-sm">
                           <table className="w-full border-collapse text-sm">
                             <thead>
                               <tr className="bg-[#F7F2FF]">
-                                {['Item name', 'Vendor', 'Planned (₪)', 'Media code', 'Media?'].map((h) => (
+                                {['Item name', 'Vendor', 'Planned (₪)', 'Media code', 'Media?', 'Actions'].map((h) => (
                                   <th key={h} className="px-3 py-2 text-left text-[0.6rem] font-bold uppercase tracking-wider text-[#8A7BAB]">
                                     {h}
                                   </th>
@@ -3668,13 +3753,62 @@ export default function App() {
                                     />
                                   </td>
                                   <td className="p-2">
-                                    <input
-                                      type="text"
-                                      value={row.mediaCode}
-                                      onChange={(e) => patchBudgetDraftField(row.id, 'mediaCode', e.target.value)}
-                                      placeholder="Code"
-                                      className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] px-2 py-1.5 font-mono text-xs outline-none focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
-                                    />
+                                    {(() => {
+                                      const query = String(row.mediaCode ?? '').trim().toLowerCase()
+                                      const filteredCodes = adpubMediaCodeSearchOptions
+                                        .filter((code) => code.toLowerCase().includes(query))
+                                        .slice(0, 60)
+                                      return (
+                                        <div className="relative">
+                                          <input
+                                            type="text"
+                                            value={row.mediaCode ?? ''}
+                                            onFocus={() => setOpenMediaCodeRowId(row.id)}
+                                            onChange={(e) => {
+                                              patchBudgetDraftField(row.id, 'mediaCode', e.target.value)
+                                              setOpenMediaCodeRowId(row.id)
+                                            }}
+                                            placeholder={adpubMediaCodeOptionsLoading ? 'טוען קודי מדיה…' : 'בחר או חפש קוד מדיה…'}
+                                            dir="rtl"
+                                            className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-[#FCFBFF] px-2.5 py-1.5 pr-8 text-sm font-semibold tracking-[0.01em] text-[#2D1B69] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+                                          />
+                                          <button
+                                            type="button"
+                                            tabIndex={-1}
+                                            aria-label="Toggle media code options"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => setOpenMediaCodeRowId((prev) => (prev === row.id ? null : row.id))}
+                                            className="absolute inset-y-0 left-1.5 flex items-center text-[#6F63A8] hover:text-[#4B4594]"
+                                          >
+                                            <ChevronDown className={`h-4 w-4 transition-transform ${openMediaCodeRowId === row.id ? 'rotate-180' : ''}`} />
+                                          </button>
+
+                                          {openMediaCodeRowId === row.id && (
+                                            <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-[rgba(74,20,140,0.18)] bg-white py-1 shadow-[0_14px_34px_rgba(46,26,102,0.22)]">
+                                              {filteredCodes.length > 0 ? filteredCodes.map((code) => (
+                                                <button
+                                                  key={code}
+                                                  type="button"
+                                                  dir="rtl"
+                                                  onMouseDown={(e) => {
+                                                    e.preventDefault()
+                                                    patchBudgetDraftField(row.id, 'mediaCode', code)
+                                                    setOpenMediaCodeRowId(null)
+                                                  }}
+                                                  className="block w-full px-3 py-1.5 text-right text-sm font-medium text-[#3C2A78] transition hover:bg-[#F1EBFF]"
+                                                >
+                                                  {code}
+                                                </button>
+                                              )) : (
+                                                <div className="px-3 py-2 text-right text-xs text-[#8A7BAB]">
+                                                  לא נמצאו התאמות
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })()}
                                   </td>
                                   <td className="p-2 text-center">
                                     <input
@@ -3683,6 +3817,17 @@ export default function App() {
                                       onChange={(e) => patchBudgetDraftField(row.id, 'isMedia', e.target.checked)}
                                       className="h-4 w-4 rounded border-[rgba(74,20,140,0.3)] text-[#4B4594]"
                                     />
+                                  </td>
+                                  <td className="p-2 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeBudgetDraftRow(row.id)}
+                                      className="inline-flex items-center justify-center rounded-md border border-[rgba(230,30,110,0.28)] bg-[#FFF1F6] p-1.5 text-[#C0004C] transition hover:bg-[#FFE4EE]"
+                                      title="Delete line"
+                                      aria-label="Delete line"
+                                    >
+                                      <Trash2Icon className="h-3.5 w-3.5" aria-hidden />
+                                    </button>
                                   </td>
                                 </tr>
                               ))}
@@ -3822,7 +3967,21 @@ export default function App() {
                         <tr key={row.id} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
                           <td className="py-2 pl-9 pr-4">
                             {budgetEditMode
-                              ? <div className="flex items-center gap-1">{editInput(row, 'categoryName')}{mediaToggle(row)}</div>
+                              ? (
+                                <div className="flex items-center gap-1">
+                                  {editInput(row, 'categoryName')}
+                                  {mediaToggle(row)}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeBudgetDraftRow(row.id)}
+                                    className="ml-1 inline-flex items-center justify-center rounded-md border border-[rgba(230,30,110,0.28)] bg-[#FFF1F6] p-1 text-[#C0004C] transition hover:bg-[#FFE4EE]"
+                                    title="Delete line"
+                                    aria-label="Delete line"
+                                  >
+                                    <Trash2Icon className="h-3.5 w-3.5" aria-hidden />
+                                  </button>
+                                </div>
+                              )
                               : <span className="text-[12.5px] text-[#5B4B7A]">{row.categoryName}</span>
                             }
                           </td>
@@ -3856,7 +4015,14 @@ export default function App() {
                           <td colSpan={5} className="px-4 py-1.5">
                             <button
                               type="button"
-                              onClick={() => addBudgetDraftRow()}
+                              onClick={() => {
+                                const groupMediaHint = rows.find((r) => r.isMedia === true)?.isMedia === true
+                                  ? true
+                                  : rows.find((r) => r.isMedia === false)?.isMedia === false
+                                  ? false
+                                  : false
+                                addBudgetDraftRowWithPrefill({ mediaCode: code || '', isMedia: groupMediaHint })
+                              }}
                               className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-[11px] font-semibold text-[#4B4594] transition hover:bg-[#EDE8F8]"
                             >
                               <span className="text-base leading-none">+</span> Add Adpub Line
@@ -3880,20 +4046,43 @@ export default function App() {
                 const exportToExcel = () => {
                   const filmTitle = movieTitleEnglish(film) || `film_${film.film_number}`
                   const rows = []
+                  const blankRow = () => ({
+                    Category: '', 'Item Name': '', Vendor: '',
+                    'Planned (₪)': '', 'Actual (₪)': '', 'Revenue (₪)': '', 'Variance (₪)': '',
+                  })
 
-                  const addSection = (label, groups) => {
-                    if (groups.length === 0) return
-                    rows.push({ Category: label, 'Item Name': '', Vendor: '', 'Planned (₪)': '', 'Actual (₪)': '', 'Variance (₪)': '' })
-                    for (const [, { code, rows: budgetRows }] of groups) {
-                      // Only detail (line-item) rows — no group summary row to avoid double-counting planned totals
+                  // Film-level KPIs — actual/revenue only on rows with Category (column A)
+                  rows.push({ ...blankRow(), Category: '── Film Summary ──' })
+                  rows.push({ ...blankRow(), Category: 'Planned Adpub', 'Planned (₪)': filmBudget })
+                  rows.push({ ...blankRow(), Category: 'Total Spent (Actual)', 'Actual (₪)': filmSpent })
+                  rows.push({ ...blankRow(), Category: 'Balance', 'Variance (₪)': filmBalance })
+                  rows.push({ ...blankRow(), Category: 'Total Revenue', 'Revenue (₪)': filmIncome })
+                  rows.push(blankRow())
+
+                  const addSection = (label, groupEntries) => {
+                    if (groupEntries.length === 0) return
+                    rows.push({ ...blankRow(), Category: label })
+                    for (const [groupKey, { code, rows: budgetRows }] of groupEntries) {
+                      const groupBudget   = budgetRows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
+                      const groupActual   = actualByCode[groupKey] ?? 0
+                      const groupVariance = groupBudget - groupActual
+
+                      // Group subtotal — actuals are keyed by media_budget_code (same as on-screen parent row)
+                      rows.push({
+                        ...blankRow(),
+                        Category:       code || 'No Code',
+                        'Item Name':    `Subtotal (${budgetRows.length} line${budgetRows.length === 1 ? '' : 's'})`,
+                        'Planned (₪)':  groupBudget,
+                        'Actual (₪)':   groupActual,
+                        'Variance (₪)': groupVariance,
+                      })
+
                       for (const r of budgetRows) {
                         rows.push({
-                          Category:       code || 'No Code',
-                          'Item Name':    r.categoryName || '',
-                          Vendor:         r.vendorName || '',
-                          'Planned (₪)':  r.budget,
-                          'Actual (₪)':   '',
-                          'Variance (₪)': '',
+                          ...blankRow(),
+                          'Item Name':   r.categoryName || '',
+                          Vendor:        r.vendorName || '',
+                          'Planned (₪)': Number(r.budget) || 0,
                         })
                       }
                     }
@@ -3906,40 +4095,75 @@ export default function App() {
                     addSection('Adpub', visibleGroups)
                   }
 
-                  // Unrecognized section
+                  if (budgetFilter === 'all' && mediaGroups.length > 0 && nonMediaGroups.length > 0) {
+                    rows.push({
+                      ...blankRow(),
+                      Category: 'Section Totals',
+                      'Planned (₪)': mediaTotals.planned + nonMediaTotals.planned,
+                      'Actual (₪)': mediaTotals.actual + nonMediaTotals.actual,
+                      'Variance (₪)': mediaTotals.variance + nonMediaTotals.variance,
+                    })
+                  }
+
+                  // Unrecognized expenses (no matching budget code)
                   if (showUnmapped && unmappedActuals.length > 0) {
-                    rows.push({ Category: '⚠ Unrecognized Expenses', 'Item Name': '', Vendor: '', 'Planned (₪)': '', 'Actual (₪)': '', 'Variance (₪)': '' })
+                    rows.push({
+                      ...blankRow(),
+                      Category:       '⚠ Unrecognized Expenses',
+                      'Actual (₪)':   unmappedTotal,
+                      'Variance (₪)': -unmappedTotal,
+                    })
                     for (const r of unmappedActuals) {
                       rows.push({
-                        Category:       '',
-                        'Item Name':    r.expense_description || r.media_budget_code || '—',
-                        Vendor:         '',
-                        'Planned (₪)':  '',
-                        'Actual (₪)':   Number(r.actual_amount),
-                        'Variance (₪)': '',
+                        ...blankRow(),
+                        'Item Name': r.expense_description || r.media_budget_code || '—',
                       })
                     }
                   }
 
-                  // Grand total row
                   rows.push({
-                    Category:       '',
-                    'Item Name':    'GRAND TOTAL',
-                    Vendor:         '',
+                    ...blankRow(),
+                    Category:       'GRAND TOTAL (Adpub)',
                     'Planned (₪)':  visibleTotals.planned,
                     'Actual (₪)':   visibleTotals.actual,
                     'Variance (₪)': visibleTotals.variance,
                   })
 
-                  const ws = XLSX.utils.json_to_sheet(rows)
+                  // Print — two blank rows below Grand Total, then print section
+                  if (printRows.length > 0) {
+                    rows.push(blankRow(), blankRow())
+                    rows.push({ ...blankRow(), Category: 'Print & Technical (excl. from budget)' })
+                    for (const r of printRows) {
+                      rows.push({
+                        ...blankRow(),
+                        Category:     r.media_budget_code || r.priority_code || '—',
+                        'Item Name':  r.expense_description || '—',
+                        'Actual (₪)': Number(r.actual_amount) || 0,
+                      })
+                    }
+                  }
 
-                  // Column widths
+                  const ws = XLSX.utils.json_to_sheet(rows)
+                  const lastDataRow = rows.length
+                  const colCount = 7
+
+                  applyExcelBoldToRow(ws, 0, colCount)
+                  for (let i = 0; i < rows.length; i++) {
+                    if (String(rows[i].Category ?? '').trim() !== '') {
+                      applyExcelBoldToRow(ws, i + 1, colCount)
+                    }
+                  }
+                  for (const col of [3, 4, 5, 6]) {
+                    applyExcelNumberFormatToColumn(ws, col, 1, lastDataRow)
+                  }
+
                   ws['!cols'] = [
                     { wch: 22 },  // Category
                     { wch: 36 },  // Item Name
                     { wch: 22 },  // Vendor
                     { wch: 16 },  // Planned
                     { wch: 16 },  // Actual
+                    { wch: 16 },  // Revenue
                     { wch: 16 },  // Variance
                   ]
 
@@ -4314,6 +4538,7 @@ export default function App() {
                   activeTableConfirmFnChange.oldFn,
                   activeTableConfirmFnChange.newFn,
                   activeTableConfirmFnChange.filmPayload,
+                  activeTableConfirmFnChange.actionMeta,
                 )}
                 disabled={activeTableSaving}
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
