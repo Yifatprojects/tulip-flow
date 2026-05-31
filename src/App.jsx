@@ -18,6 +18,8 @@ import { CatalogsManagementModal } from './CatalogsManagement'
 import UploadsManagementModal from './UploadsManagement'
 import BudgetUploadsManagementModal from './BudgetUploadsManagement'
 import { LoginPage } from './LoginPage'
+import SettingsPage from './SettingsPage'
+import MFAComponent from './MFAComponent'
 
 /** @typedef {import('./types/movie').Movie} Movie */
 
@@ -1443,9 +1445,30 @@ function DashboardSummaryRow({ studioOptions = [] }) {
 }
 
 export default function App() {
-  // ── auth ──────────────────────────────────────────────────────────────────
-  // undefined = still loading, null = signed out, object = signed in
   const [session, setSession] = useState(undefined)
+  const [mfaStatus, setMfaStatus] = useState('loading')
+  const [currentPage, setCurrentPage] = useState('dashboard') // 'dashboard' | 'settings'
+
+  const recheckMfa = useCallback(async () => {
+    setMfaStatus('loading')
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      if (!currentSession) {
+        setMfaStatus('required')
+        return false
+      }
+
+      const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (error) throw error
+
+      const verified = data.currentLevel === 'aal2'
+      setMfaStatus(verified ? 'verified' : 'required')
+      return verified
+    } catch {
+      setMfaStatus('required')
+      return false
+    }
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s ?? null))
@@ -1453,6 +1476,37 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (session === undefined) return
+    if (!session) {
+      setMfaStatus('required')
+      return
+    }
+    void recheckMfa()
+  }, [session, recheckMfa])
+
+  // Re-validate MFA after bfcache restore or tab focus (prevents Back-button bypass).
+  useEffect(() => {
+    if (!session) return
+
+    const onPageShow = () => { void recheckMfa() }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void recheckMfa()
+    }
+    const onPopState = () => {
+      window.history.replaceState(null, '', window.location.pathname || '/')
+      void recheckMfa()
+    }
+
+    window.addEventListener('pageshow', onPageShow)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      window.removeEventListener('pageshow', onPageShow)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [session, recheckMfa])
   const [movies, setMovies] = useState(null)
   const [movieBudgetTotals, setMovieBudgetTotals] = useState({})
   const [movieActualTotals, setMovieActualTotals] = useState({})
@@ -2445,17 +2499,75 @@ export default function App() {
   }
 
   // ── auth gates ────────────────────────────────────────────────────────────
-  if (session === undefined) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6]">
-        <Loader2 className="h-8 w-8 animate-spin text-[#4B4594]" />
-      </div>
-    )
-  }
-  if (!session) return <LoginPage />
+  // ── auth gates ────────────────────────────────────────────────────────────
+if (session === undefined || (session && mfaStatus === 'loading')) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6]">
+      <Loader2 className="h-8 w-8 animate-spin text-[#4B4594]" />
+    </div>
+  )
+}
+if (!session) return <LoginPage />
 
+// Dashboard and all authenticated routes require AAL2 (MFA verified in this session).
+if (mfaStatus !== 'verified') {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6] px-4">
+      <div style={{ maxWidth: 480, width: '100%' }}>
+        <div className="mb-6 text-center">
+          <p className="font-['Montserrat',sans-serif] text-2xl font-extrabold tracking-[0.06em] text-[#4B4594]">
+            TULIP <span className="text-[#F9B233]">Flow</span>
+          </p>
+          <p className="mt-1 text-sm text-[#8A7BAB]">Two-factor authentication required</p>
+        </div>
+        <MFAComponent onVerified={async () => {
+          window.history.replaceState(null, '', window.location.pathname || '/')
+          await recheckMfa()
+        }} />
+        <div className="mt-4 text-center">
+          <button type="button" onClick={() => supabase.auth.signOut()}
+            className="text-xs text-[#8A7BAB] underline hover:text-[#4B4594]">
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+if (currentPage === 'settings') {
   return (
     <div className="min-h-dvh w-full">
+      <div className="mx-auto w-full max-w-7xl px-[clamp(1rem,3.5vw,2.5rem)] pb-20 pt-[clamp(2.25rem,7vh,5rem)]">
+        <header className="mb-6 border-b border-[rgba(123,82,171,0.22)] pb-6">
+          <div className="flex items-center gap-4">
+            <div className="flex shrink-0 items-center gap-3">
+              <img src={tulipLogo} alt="Tulip logo" className="h-10 w-10 shrink-0 rounded-md object-contain" />
+              <p className="flex items-baseline gap-2">
+                <span className="font-['Montserrat',sans-serif] text-xl font-extrabold tracking-[0.06em] text-[#4B4594]">TULIP</span>
+                <span className="font-['Montserrat',sans-serif] text-xl font-bold uppercase tracking-[0.08em] text-[#F9B233]">Flow</span>
+              </p>
+            </div>
+            <div className="flex flex-1 items-center justify-end gap-2">
+              <button type="button" onClick={() => setCurrentPage('dashboard')}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]">
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Back to Dashboard
+              </button>
+              <button type="button" onClick={() => supabase.auth.signOut()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#4A148C] transition hover:bg-[#F7F2FF]">
+                <LogOut className="h-3.5 w-3.5" aria-hidden /> Sign out
+              </button>
+            </div>
+          </div>
+        </header>
+        <SettingsPage />
+      </div>
+    </div>
+  )
+}
+
+  return (
+    <div className="min-h-dvh w-full bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6]">
 
       <main className="w-full overflow-x-hidden pb-[env(safe-area-inset-bottom)]">
 
@@ -2621,7 +2733,6 @@ export default function App() {
                     Sign out
                   </button>
                 </div>
-
               </div>{/* end three-zone navbar */}
             </header>
 
