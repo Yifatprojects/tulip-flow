@@ -2576,19 +2576,13 @@ if (currentPage === 'settings') {
               {/* Three-zone navbar: Logo | Actions | User */}
               <div className="flex items-center gap-4">
 
-                {/* ── Left: Logo + tagline ── */}
+                {/* ── Left: Logo + brand ── */}
                 <div className="flex shrink-0 items-center gap-3">
-                  <img src={tulipLogo} alt="Tulip logo" className="h-10 w-10 shrink-0 rounded-md object-contain" />
-                  <div>
-                    <p className="flex items-baseline gap-2">
-                      <span className="font-['Montserrat',sans-serif] text-xl font-extrabold tracking-[0.06em] text-[#4B4594]">TULIP</span>
-                      <span className="font-['Montserrat',sans-serif] text-xl font-bold uppercase tracking-[0.08em] text-[#F9B233]">Flow</span>
-                    </p>
-                    {/* Tagline — "movie" emphasised, "ing in sync" lighter */}
-                    <p className="mt-1 font-['Georgia',serif] text-[0.7rem] italic tracking-[0.16em] text-[#7B52AB]/65">
-                      <span className="font-extrabold not-italic text-[#7B52AB]">movie</span>ing in sync
-                    </p>
-                  </div>
+                  <img src={tulipLogo} alt="Tulip logo" className="h-12 w-12 shrink-0 rounded-md object-contain" />
+                  <p className="flex items-baseline gap-2 leading-none">
+                    <span className="font-['Montserrat',sans-serif] text-[1.75rem] font-extrabold tracking-[0.06em] text-[#4B4594] sm:text-3xl">TULIP</span>
+                    <span className="font-['Montserrat',sans-serif] text-[1.75rem] font-bold uppercase tracking-[0.08em] text-[#F9B233] sm:text-3xl">Flow</span>
+                  </p>
                 </div>
 
                 {/* ── Centre: Primary action buttons (flex-1 centres them) ── */}
