@@ -1,41 +1,66 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabaseClient';
 
-function getMfaEnrollOptions(): { factorType: 'totp'; friendlyName: string; issuer: string } {
+function getIssuer(): string {
   const raw =
     (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env.VITE_MFA_ISSUER ||
     (typeof window !== 'undefined' ? window.location.hostname : '') ||
     'TULIP-Flow';
 
-  const issuer = raw.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\s+/g, '-');
+  return raw.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/\s+/g, '-');
+}
 
-  return {
-    factorType: 'totp',
-    friendlyName: `TULIP Flow (${issuer})`,
-    issuer,
-  };
+function getMfaEnrollOptions(suffix = ''): { factorType: 'totp'; friendlyName: string; issuer: string } {
+  const issuer = getIssuer();
+  const friendlyName = suffix ? `TULIP Flow ${suffix}` : 'TULIP Flow';
+
+  return { factorType: 'totp', friendlyName, issuer };
+}
+
+async function listTotpFactors() {
+  const { data, error } = await supabase.auth.mfa.listFactors();
+  if (error) throw error;
+  return data?.totp ?? [];
+}
+
+async function cleanupUnverifiedFactors() {
+  const factors = await listTotpFactors();
+  const unverified = factors.filter((f) => f.status !== 'verified');
+
+  for (const factor of unverified) {
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+    if (error) throw new Error(`Could not reset MFA: ${error.message}`);
+  }
+
+  return unverified.length;
+}
+
+async function enrollTotpFactor(): Promise<{ qrCode: string; factorId: string }> {
+  await cleanupUnverifiedFactors();
+
+  let { data, error } = await supabase.auth.mfa.enroll(getMfaEnrollOptions());
+
+  // Stale factor may exist in DB but not appear in listFactors — retry with a unique name.
+  if (error && /friendly name|already exists/i.test(error.message)) {
+    const suffix = Date.now().toString(36);
+    ({ data, error } = await supabase.auth.mfa.enroll(getMfaEnrollOptions(suffix)));
+  }
+
+  if (error) throw error;
+
+  return { qrCode: data.totp.qr_code, factorId: data.id };
 }
 
 async function initializeMfa(): Promise<{ qrCode: string | null; factorId: string }> {
-  const { data: factors, error: listError } = await supabase.auth.mfa.listFactors();
-  if (listError) throw listError;
-
-  const totpFactors = factors?.totp ?? [];
+  const totpFactors = await listTotpFactors();
   const verified = totpFactors.filter((f) => f.status === 'verified');
-  const unverified = totpFactors.filter((f) => f.status !== 'verified');
 
   if (verified.length > 0) {
     return { qrCode: null, factorId: verified[0].id };
   }
 
-  for (const factor of unverified) {
-    await supabase.auth.mfa.unenroll({ factorId: factor.id });
-  }
-
-  const { data, error: enrollError } = await supabase.auth.mfa.enroll(getMfaEnrollOptions());
-  if (enrollError) throw enrollError;
-
-  return { qrCode: data.totp.qr_code, factorId: data.id };
+  const enrolled = await enrollTotpFactor();
+  return { qrCode: enrolled.qrCode, factorId: enrolled.factorId };
 }
 
 function QrCodeDisplay({ qrCode }: { qrCode: string }) {
@@ -77,8 +102,7 @@ export default function MFAComponent({ onVerified }) {
       setFactorId(result.factorId);
       setExistingFactor(!result.qrCode);
     } catch (err) {
-      const message = err?.message || 'Could not start MFA setup. Please try again.';
-      setError(message);
+      setError(err?.message || 'Could not start MFA setup. Please try again.');
       setQrCode(null);
       setFactorId(null);
       setExistingFactor(false);
@@ -144,7 +168,7 @@ export default function MFAComponent({ onVerified }) {
       {!qrCode && !error && (
         <p className="text-sm text-gray-600 mb-4 text-center">
           {existingFactor
-            ? 'MFA is already set up for this account. Enter the code from your authenticator app (including any localhost entry).'
+            ? 'MFA is already set up for this account. Enter the code from your authenticator app.'
             : 'Enter the code from your authenticator app'}
         </p>
       )}
@@ -171,7 +195,7 @@ export default function MFAComponent({ onVerified }) {
         Verify and Enter
       </button>
 
-      {(error || (!qrCode && !existingFactor)) && (
+      {(error || !qrCode) && (
         <button
           type="button"
           onClick={() => void loadMfa()}
