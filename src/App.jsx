@@ -1449,8 +1449,8 @@ export default function App() {
   const [mfaStatus, setMfaStatus] = useState('loading')
   const [currentPage, setCurrentPage] = useState('dashboard') // 'dashboard' | 'settings'
 
-  const recheckMfa = useCallback(async () => {
-    setMfaStatus('loading')
+  const recheckMfa = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setMfaStatus('loading')
     try {
       const { data: { session: currentSession } } = await supabase.auth.getSession()
       if (!currentSession) {
@@ -1489,13 +1489,13 @@ export default function App() {
   useEffect(() => {
     if (!session) return
 
-    const onPageShow = () => { void recheckMfa() }
+    const onPageShow = () => { void recheckMfa({ silent: true }) }
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void recheckMfa()
+      if (document.visibilityState === 'visible') void recheckMfa({ silent: true })
     }
     const onPopState = () => {
       window.history.replaceState(null, '', window.location.pathname || '/')
-      void recheckMfa()
+      void recheckMfa({ silent: true })
     }
 
     window.addEventListener('pageshow', onPageShow)
