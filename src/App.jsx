@@ -443,12 +443,74 @@ async function buildDashboardFilmMap() {
   return filmMap
 }
 
+let cachedFilmMap = null
+let cachedFilmMapAt = 0
+const FILM_MAP_TTL_MS = 60_000
+
+async function getDashboardFilmMap() {
+  const now = Date.now()
+  if (cachedFilmMap && now - cachedFilmMapAt < FILM_MAP_TTL_MS) return cachedFilmMap
+  cachedFilmMap = await buildDashboardFilmMap()
+  cachedFilmMapAt = now
+  return cachedFilmMap
+}
+
+/** One film-map + two table scans for all YTD summary KPIs (was 4× film + 4× queries). */
+async function loadDashboardSummaryData(studioFilter) {
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  const ytdStart = `${now.getFullYear()}-01-01`
+  const selectedLc = studioFilter ? dashboardNormStudio(studioFilter).toLowerCase() : null
+
+  const filmMap = await getDashboardFilmMap()
+  const [expRows, incRows] = await Promise.all([
+    fetchSupabaseAllRows(
+      supabase.from('actual_expenses')
+        .select('film_number, actual_amount, month_period, priority_code')
+        .gte('month_period', ytdStart)
+        .lte('month_period', currentMonth),
+    ),
+    fetchSupabaseAllRows(
+      supabase.from('rental_transactions')
+        .select('film_number, actual_amount, month_period')
+        .gte('month_period', ytdStart)
+        .lte('month_period', currentMonth),
+    ),
+  ])
+
+  const studioFor = (filmNumber) =>
+    dashboardNormStudio(filmMap[dashboardNormId(filmNumber)]?.studio ?? 'Unknown')
+
+  const matchesStudio = (studio) => !selectedLc || studio.toLowerCase() === selectedLc
+
+  let currExpenses = 0
+  let ytdExpenses = 0
+  let currIncome = 0
+  let ytdIncome = 0
+
+  for (const r of expRows) {
+    if (!matchesStudio(studioFor(r.film_number))) continue
+    const amt = Number(r.actual_amount) || 0
+    ytdExpenses += amt
+    if (r.month_period === currentMonth) currExpenses += amt
+  }
+
+  for (const r of incRows) {
+    if (!matchesStudio(studioFor(r.film_number))) continue
+    const amt = Number(r.actual_amount) || 0
+    ytdIncome += amt
+    if (r.month_period === currentMonth) currIncome += amt
+  }
+
+  return { currExpenses, ytdExpenses, currIncome, ytdIncome }
+}
+
 /**
  * Single source of truth for dashboard expense KPI + drill-down (media + print).
  * Sums every actual_expenses row in range — no is_print filter.
  */
-async function aggregateDashboardExpenses({ monthStart, monthEnd, monthEq, studioFilter }) {
-  const filmMap = await buildDashboardFilmMap()
+async function aggregateDashboardExpenses({ monthStart, monthEnd, monthEq, studioFilter, filmMap: filmMapIn }) {
+  const filmMap = filmMapIn ?? await getDashboardFilmMap()
   let q = supabase
     .from('actual_expenses')
     .select('film_number, actual_amount, month_period, priority_code')
@@ -479,8 +541,8 @@ async function aggregateDashboardExpenses({ monthStart, monthEnd, monthEq, studi
   return { total, rows }
 }
 
-async function aggregateDashboardIncome({ monthStart, monthEnd, monthEq, studioFilter }) {
-  const filmMap = await buildDashboardFilmMap()
+async function aggregateDashboardIncome({ monthStart, monthEnd, monthEq, studioFilter, filmMap: filmMapIn }) {
+  const filmMap = filmMapIn ?? await getDashboardFilmMap()
   let q = supabase.from('rental_transactions').select('film_number, actual_amount, month_period')
   if (monthEq) q = q.eq('month_period', monthEq)
   else if (monthStart && monthEnd) q = q.gte('month_period', monthStart).lte('month_period', monthEnd)
@@ -908,7 +970,7 @@ function TrendChart({ filmNumber }) {
 // ── Dashboard Summary Row ─────────────────────────────────────────────────────
 function DashboardSummaryRow({ studioOptions = [] }) {
   const [summary, setSummary]             = useState(null)
-  const [loading, setLoading]             = useState(false)
+  const [loading, setLoading]             = useState(true)
   const [summaryStudio, setSummaryStudio] = useState('') // '' = All Studios
   const [auditData, setAuditData]         = useState(null)
   const [auditLoading, setAuditLoading]   = useState(false)
@@ -921,24 +983,13 @@ function DashboardSummaryRow({ studioOptions = [] }) {
     async function load() {
       setLoading(true)
       try {
-        const now          = new Date()
-        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-        const ytdStart     = `${now.getFullYear()}-01-01`
-        const studioFilter = summaryStudio || null
-
-        const [currExp, ytdExp, currInc, ytdInc] = await Promise.all([
-          aggregateDashboardExpenses({ monthEq: currentMonth, studioFilter }),
-          aggregateDashboardExpenses({ monthStart: ytdStart, monthEnd: currentMonth, studioFilter }),
-          aggregateDashboardIncome({ monthEq: currentMonth, studioFilter }),
-          aggregateDashboardIncome({ monthStart: ytdStart, monthEnd: currentMonth, studioFilter }),
-        ])
-
+        const data = await loadDashboardSummaryData(summaryStudio || null)
         if (!cancelled) {
           setSummary({
-            currExpenses: currExp.total,
-            currIncome:   currInc,
-            ytdExpenses:  ytdExp.total,
-            ytdIncome:    ytdInc,
+            currExpenses: data.currExpenses,
+            currIncome: data.currIncome,
+            ytdExpenses: data.ytdExpenses,
+            ytdIncome: data.ytdIncome,
           })
         }
       } catch (err) {
@@ -1551,6 +1602,8 @@ export default function App() {
   const [lastUpdateInfo, setLastUpdateInfo] = useState(null) // array of { studio, period } | null
 
   useEffect(() => {
+    if (mfaStatus !== 'verified' || !session) return
+
     async function fetchLastUpdate() {
       try {
         // 1. Load all films to build film_number/profit_center → studio map
@@ -1603,7 +1656,7 @@ export default function App() {
       } catch { /* silent */ }
     }
     void fetchLastUpdate()
-  }, [])
+  }, [mfaStatus, session])
 
   const [selectedMovie, setSelectedMovie] = useState(null)
 
@@ -1746,6 +1799,7 @@ export default function App() {
       setMovieLatestMonth(latestMonthByFilm)
       setMovieMonthlyExp(snapExp)
       setMovieMonthlyInc(snapInc)
+      cachedFilmMap = null
     } catch (err) {
       console.error(err)
       setLoadError(err instanceof Error ? err.message : String(err))
@@ -1756,8 +1810,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (mfaStatus !== 'verified' || !session) return
     void refreshMovies()
-  }, [refreshMovies])
+  }, [mfaStatus, session, refreshMovies])
 
   const startActiveTableEdit = useCallback((film) => {
     const fn = film.film_number
@@ -1921,7 +1976,10 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => { void fetchLastActions() }, [fetchLastActions])
+  useEffect(() => {
+    if (mfaStatus !== 'verified' || !session) return
+    void fetchLastActions()
+  }, [mfaStatus, session, fetchLastActions])
 
   const startBudgetEditEmpty = useCallback(() => {
     setDraftRows([{
@@ -2730,8 +2788,8 @@ if (currentPage === 'settings') {
               </div>{/* end three-zone navbar */}
             </header>
 
-            {/* Monthly summary row */}
-            {movies !== null && !loadError && <DashboardSummaryRow studioOptions={studioFilterOptions} />}
+            {/* Monthly summary row — loads in parallel with films list */}
+            {!loadError && <DashboardSummaryRow studioOptions={studioFilterOptions} />}
 
             {/* ── Dashboard Widgets ────────────────────────────────────────── */}
             {movies !== null && !loadError && (() => {
