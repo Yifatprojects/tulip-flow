@@ -18,17 +18,29 @@
     <div id="root"></div>
     <script>
       (function () {
-        var path = location.pathname;
-        var onReset = path === '/reset-password' || path.endsWith('/reset-password');
-        if (onReset) return;
+        var SNAPSHOT_KEY = 'tulip_auth_recovery_snapshot';
         var combined = location.search + location.hash;
-        var isRecovery =
+        var hasAuthParams =
           /(?:^|[?&#])code=/.test(combined) ||
           /access_token=/.test(combined) ||
           /token_hash=/.test(combined) ||
           /type=recovery/.test(combined) ||
           /(?:^|[?&#])error=/.test(combined);
-        if (isRecovery) {
+        if (hasAuthParams) {
+          try {
+            sessionStorage.setItem(
+              SNAPSHOT_KEY,
+              JSON.stringify({
+                search: location.search || '',
+                hash: location.hash || '',
+                at: Date.now(),
+              }),
+            );
+          } catch (e) {}
+        }
+        var path = location.pathname;
+        var onReset = path === '/reset-password' || path.endsWith('/reset-password');
+        if (!onReset && hasAuthParams) {
           location.replace(location.origin + '/reset-password' + location.search + location.hash);
         }
       })();

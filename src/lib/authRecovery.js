@@ -5,6 +5,11 @@ const EXPIRED_MSG =
 
 const RESET_PATH = '/reset-password'
 const RECOVERY_FLAG_KEY = 'tulip_password_recovery_flow'
+const SNAPSHOT_KEY = 'tulip_auth_recovery_snapshot'
+const SNAPSHOT_TTL_MS = 15 * 60 * 1000
+
+const NO_TOKEN_MSG =
+  'This link opened without a reset token (the address bar should briefly show access_token or code in the URL). In Supabase, set Redirect URL to https://tulip-flow.vercel.app/reset-password and use a fresh reset email.'
 
 let establishPromise = null
 let cachedEstablishResult = null
@@ -18,9 +23,58 @@ export function clearRecoverySessionFlag() {
   recoverySessionActive = false
   try {
     sessionStorage.removeItem(RECOVERY_FLAG_KEY)
+    sessionStorage.removeItem(SNAPSHOT_KEY)
   } catch {
     /* ignore */
   }
+}
+
+function urlHasAuthParams(search, hash) {
+  const combined = `${search || ''}${hash || ''}`
+  return (
+    /(?:^|[?&#])code=/.test(combined) ||
+    /access_token=/.test(combined) ||
+    /token_hash=/.test(combined) ||
+    /type=recovery/.test(combined) ||
+    /(?:^|[?&#])error=/.test(combined)
+  )
+}
+
+function readRecoverySnapshot() {
+  try {
+    const raw = sessionStorage.getItem(SNAPSHOT_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw)
+    if (!data?.at || Date.now() - data.at > SNAPSHOT_TTL_MS) {
+      sessionStorage.removeItem(SNAPSHOT_KEY)
+      return null
+    }
+    return data
+  } catch {
+    return null
+  }
+}
+
+function clearRecoverySnapshot() {
+  try {
+    sessionStorage.removeItem(SNAPSHOT_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function getRecoveryUrlParts() {
+  if (typeof window === 'undefined') {
+    return { search: '', hash: '' }
+  }
+  let search = window.location.search
+  let hash = window.location.hash
+  const snap = readRecoverySnapshot()
+  if (snap && !urlHasAuthParams(search, hash) && urlHasAuthParams(snap.search, snap.hash)) {
+    search = snap.search
+    hash = snap.hash
+  }
+  return { search, hash }
 }
 
 export function acknowledgePasswordRecovery() {
@@ -74,8 +128,9 @@ export function parseRecoveryTokensFromUrl() {
       error: null,
     }
   }
-  const searchParams = new URLSearchParams(window.location.search)
-  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+  const { search, hash: hashRaw } = getRecoveryUrlParts()
+  const searchParams = new URLSearchParams(search)
+  const hash = hashRaw.startsWith('#') ? hashRaw.slice(1) : hashRaw
   const hashParams = new URLSearchParams(hash)
   return {
     code: searchParams.get('code'),
@@ -138,15 +193,8 @@ function authErrorMessage(error) {
   return msg || EXPIRED_MSG
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 async function clearStaleLocalSession() {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (session) {
-    await supabase.auth.signOut({ scope: 'local' })
-  }
+  await supabase.auth.signOut({ scope: 'local' })
 }
 
 async function verifyActiveSession() {
@@ -206,20 +254,6 @@ async function applyTokensFromUrl(tokens) {
   return null
 }
 
-async function waitForSessionFromUrlDetection(timeoutMs = 12000) {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (session?.access_token) {
-      const recovered = await waitForPasswordRecoveryEvent(2000)
-      if (recovered.ok) return recovered
-      if (hasRecoveryFlowInTab()) return markRecoveryReady()
-    }
-    await sleep(150)
-  }
-  return { ok: false, message: EXPIRED_MSG }
-}
-
 async function establishRecoverySessionOnce() {
   if (cachedEstablishResult) return cachedEstablishResult
 
@@ -243,11 +277,10 @@ async function establishRecoverySessionOnce() {
       cachedEstablishResult = fromUrl
       return cachedEstablishResult
     }
-
     if (!fromUrl?.ok) {
-      const detected = await waitForSessionFromUrlDetection()
-      if (!detected.ok) {
-        cachedEstablishResult = detected
+      const recovered = await waitForPasswordRecoveryEvent(8000)
+      if (!recovered.ok) {
+        cachedEstablishResult = recovered
         return cachedEstablishResult
       }
     }
@@ -259,8 +292,14 @@ async function establishRecoverySessionOnce() {
     }
 
     markRecoveryFlowInTab()
+    clearRecoverySnapshot()
     cleanRecoveryUrl()
     cachedEstablishResult = { ok: true }
+    return cachedEstablishResult
+  }
+
+  if (isResetPasswordRoute() && readRecoverySnapshot()) {
+    cachedEstablishResult = { ok: false, message: NO_TOKEN_MSG }
     return cachedEstablishResult
   }
 
