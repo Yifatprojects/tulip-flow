@@ -1534,13 +1534,19 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s ?? null))
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true)
       }
-      setSession(s ?? null)
+      if (!isResetPasswordRoute() || event === 'SIGNED_OUT') {
+        setSession(s ?? null)
+      }
     })
+
+    if (!isResetPasswordRoute()) {
+      supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s ?? null))
+    }
+
     return () => subscription.unsubscribe()
   }, [])
 

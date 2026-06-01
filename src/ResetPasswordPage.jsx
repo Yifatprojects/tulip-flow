@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Loader2, Lock, ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { establishRecoverySession } from './lib/authRecovery';
+import { establishRecoverySession, verifyRecoverySession } from './lib/authRecovery';
 import { validatePassword, passwordsMatch, PASSWORD_POLICY_MESSAGE } from './lib/passwordPolicy';
 import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
@@ -16,26 +16,22 @@ export function ResetPasswordPage({ onComplete }) {
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true
 
-    async function init() {
-      setSessionLoading(true);
-      const result = await establishRecoverySession();
-      if (cancelled) return;
-
+    void establishRecoverySession().then((result) => {
+      if (!active) return
       if (result.ok) {
-        setSessionReady(true);
-        setError(null);
+        setSessionReady(true)
+        setError(null)
       } else {
-        setSessionReady(false);
-        setError(result.message);
+        setSessionReady(false)
+        setError(result.message)
       }
-      setSessionLoading(false);
-    }
+      setSessionLoading(false)
+    })
 
-    void init();
-    return () => { cancelled = true };
-  }, []);
+    return () => { active = false }
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -59,10 +55,14 @@ export function ResetPasswordPage({ onComplete }) {
 
     setBusy(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Your reset session has expired. Please request a new link from the login page.');
+      const verified = await verifyRecoverySession();
+      if (!verified.ok) {
+        setSessionReady(false);
+        throw new Error(verified.message);
       }
+
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
 
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;

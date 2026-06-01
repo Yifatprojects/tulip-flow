@@ -156,16 +156,6 @@ export function LoginPage() {
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
               </button>
-
-              <p className="text-center">
-                <button
-                  type="button"
-                  onClick={openForgot}
-                  className="text-xs font-medium text-[#7B52AB] underline-offset-2 hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </p>
             </form>
           ) : (
             <form onSubmit={handleForgotSubmit} className="space-y-3.5 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
