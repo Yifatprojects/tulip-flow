@@ -3,6 +3,19 @@ import { supabase } from './supabaseClient'
 const EXPIRED_MSG = 'This reset link is invalid or has expired. Please request a new one from the login page.'
 
 let establishPromise = null
+let recoverySessionActive = false
+
+export function isRecoverySessionActive() {
+  return recoverySessionActive
+}
+
+export function clearRecoverySessionFlag() {
+  recoverySessionActive = false
+}
+
+export function acknowledgePasswordRecovery() {
+  recoverySessionActive = true
+}
 
 export function isPasswordRecoveryFromUrl() {
   if (typeof window === 'undefined') return false
@@ -35,88 +48,83 @@ function cleanRecoveryUrl() {
   window.history.replaceState(null, '', window.location.pathname || '/reset-password')
 }
 
+function markRecoveryReady() {
+  recoverySessionActive = true
+  return { ok: true }
+}
+
 export async function verifyRecoverySession() {
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error || !user) {
-    await supabase.auth.signOut({ scope: 'local' })
+  if (!recoverySessionActive) {
     return { ok: false, message: EXPIRED_MSG }
   }
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) {
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error || !session) {
+    recoverySessionActive = false
     return { ok: false, message: EXPIRED_MSG }
   }
   return { ok: true, session }
 }
 
-function waitForRecoverySession(timeoutMs = 12000) {
+function waitForPasswordRecoveryEvent(timeoutMs = 15000) {
   return new Promise((resolve) => {
     let settled = false
 
-    const finish = async (ok) => {
+    const done = (ok) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       subscription.unsubscribe()
-      if (ok) {
-        const verified = await verifyRecoverySession()
-        resolve(verified)
-      } else {
-        resolve({ ok: false, message: EXPIRED_MSG })
-      }
+      if (ok) resolve(markRecoveryReady())
+      else resolve({ ok: false, message: EXPIRED_MSG })
     }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
-        void finish(true)
+      if (event === 'PASSWORD_RECOVERY' && session) {
+        done(true)
       }
     })
 
-    const timer = setTimeout(() => { void finish(false) }, timeoutMs)
-
-    void (async () => {
-      await new Promise((r) => setTimeout(r, 100))
-      const verified = await verifyRecoverySession()
-      if (verified.ok) void finish(true)
-    })()
+    const timer = setTimeout(() => done(false), timeoutMs)
   })
 }
 
-async function establishRecoverySessionOnce() {
-  const tokens = parseRecoveryTokensFromUrl()
-  const hasUrlCredentials = Boolean(tokens.code || tokens.accessToken)
-
+async function applyTokensFromUrl(tokens) {
   if (tokens.accessToken && tokens.refreshToken) {
+    await supabase.auth.signOut({ scope: 'local' })
     const { error } = await supabase.auth.setSession({
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
     })
-    if (error) {
-      await supabase.auth.signOut({ scope: 'local' })
-      return { ok: false, message: EXPIRED_MSG }
-    }
+    if (error) return { ok: false, message: EXPIRED_MSG }
+    markRecoveryReady()
     cleanRecoveryUrl()
-    return verifyRecoverySession()
+    return { ok: true }
   }
 
   if (tokens.code) {
+    await supabase.auth.signOut({ scope: 'local' })
     const { error } = await supabase.auth.exchangeCodeForSession(tokens.code)
-    if (error) {
-      await supabase.auth.signOut({ scope: 'local' })
-      return { ok: false, message: EXPIRED_MSG }
-    }
+    if (error) return { ok: false, message: EXPIRED_MSG }
+    markRecoveryReady()
     cleanRecoveryUrl()
-    return verifyRecoverySession()
+    return { ok: true }
   }
+
+  return null
+}
+
+async function establishRecoverySessionOnce() {
+  recoverySessionActive = false
+  const tokens = parseRecoveryTokensFromUrl()
+  const hasUrlCredentials = Boolean(tokens.code || tokens.accessToken)
+
+  const fromUrl = await applyTokensFromUrl(tokens)
+  if (fromUrl) return fromUrl
 
   if (hasUrlCredentials || tokens.type === 'recovery') {
-    const waited = await waitForRecoverySession()
+    const waited = await waitForPasswordRecoveryEvent()
     if (waited.ok) cleanRecoveryUrl()
     return waited
-  }
-
-  const verified = await verifyRecoverySession()
-  if (verified.ok) {
-    return verified
   }
 
   await supabase.auth.signOut({ scope: 'local' })

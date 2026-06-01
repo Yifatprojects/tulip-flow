@@ -19,7 +19,7 @@ import UploadsManagementModal from './UploadsManagement'
 import BudgetUploadsManagementModal from './BudgetUploadsManagement'
 import { LoginPage } from './LoginPage'
 import { ResetPasswordPage } from './ResetPasswordPage'
-import { isPasswordRecoveryFromUrl, isResetPasswordRoute } from './lib/authRecovery'
+import { isPasswordRecoveryFromUrl, isResetPasswordRoute, clearRecoverySessionFlag, acknowledgePasswordRecovery } from './lib/authRecovery'
 import SettingsPage from './SettingsPage'
 import MFAComponent from './MFAComponent'
 
@@ -1537,6 +1537,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true)
+        acknowledgePasswordRecovery()
       }
       if (!isResetPasswordRoute() || event === 'SIGNED_OUT') {
         setSession(s ?? null)
@@ -1555,6 +1556,7 @@ export default function App() {
   }, [])
 
   const completePasswordRecovery = useCallback(() => {
+    clearRecoverySessionFlag()
     setPasswordRecovery(false)
     setSession(null)
     setMfaStatus('required')
