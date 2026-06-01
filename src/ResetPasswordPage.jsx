@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Loader2, Lock, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, ArrowLeft, Shield } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import {
   establishRecoverySession,
@@ -9,47 +9,86 @@ import {
   mapPasswordUpdateError,
   ensureFreshRecoverySession,
 } from './lib/authRecovery';
+import {
+  getPrimaryVerifiedTotpFactorId,
+  userHasVerifiedMfa,
+  sessionIsAal2,
+  verifyTotpAndElevateToAal2,
+  formatMfaError,
+} from './lib/mfaElevate';
 import { validatePassword, passwordsMatch, PASSWORD_POLICY_MESSAGE } from './lib/passwordPolicy';
 import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
 export function ResetPasswordPage({ onComplete }) {
+  const [step, setStep] = useState('loading'); // loading | error | mfa | password
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+  const [factorId, setFactorId] = useState(null);
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
-    let active = true
+    let active = true;
 
-    void establishRecoverySession().then((result) => {
-      if (!active) return
-      if (result.ok) {
-        setSessionReady(true)
-        setError(null)
-      } else {
-        setSessionReady(false)
-        setError(result.message)
+    void (async () => {
+      const result = await establishRecoverySession();
+      if (!active) return;
+
+      if (!result.ok) {
+        setError(result.message);
+        setStep('error');
+        return;
       }
-      setSessionLoading(false)
-    })
+
+      try {
+        const needsMfa = await userHasVerifiedMfa();
+        const atAal2 = needsMfa ? await sessionIsAal2() : true;
+
+        if (needsMfa && !atAal2) {
+          const id = await getPrimaryVerifiedTotpFactorId();
+          setFactorId(id);
+          setStep('mfa');
+          return;
+        }
+
+        setStep('password');
+      } catch (err) {
+        setError(err?.message || 'Could not verify account security settings.');
+        setStep('error');
+      }
+    })();
 
     return () => {
-      active = false
+      active = false;
+    };
+  }, []);
+
+  async function handleMfaSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    if (!factorId || mfaCode.trim().length < 6) {
+      setError('Enter the 6-digit code from your authenticator app.');
+      return;
     }
-  }, [])
+
+    setBusy(true);
+    try {
+      await verifyTotpAndElevateToAal2(mfaCode, factorId);
+      setStep('password');
+      setMfaCode('');
+    } catch (err) {
+      setError(formatMfaError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-
-    if (!sessionReady) {
-      setError('Your reset session has expired. Please request a new link from the login page.');
-      return;
-    }
 
     const validation = validatePassword(password);
     if (!validation.valid) {
@@ -65,11 +104,18 @@ export function ResetPasswordPage({ onComplete }) {
     setBusy(true);
     try {
       if (!isRecoverySessionActive()) {
-        setSessionReady(false);
         throw new Error('Your reset session has expired. Please request a new link from the login page.');
       }
 
       await ensureFreshRecoverySession();
+
+      if (await userHasVerifiedMfa()) {
+        const atAal2 = await sessionIsAal2();
+        if (!atAal2) {
+          setStep('mfa');
+          throw new Error('Enter your authenticator code before updating your password.');
+        }
+      }
 
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
@@ -80,7 +126,11 @@ export function ResetPasswordPage({ onComplete }) {
       window.history.replaceState(null, '', '/');
       onComplete?.();
     } catch (err) {
-      setError(mapPasswordUpdateError(err));
+      const msg = mapPasswordUpdateError(err);
+      setError(msg);
+      if (/authenticator|two-factor|aal2/i.test(msg)) {
+        setStep('mfa');
+      }
     } finally {
       setBusy(false);
     }
@@ -97,12 +147,14 @@ export function ResetPasswordPage({ onComplete }) {
             </div>
           </div>
 
-          {sessionLoading ? (
+          {step === 'loading' && (
             <div className="flex flex-col items-center gap-3 px-7 py-10 sm:px-9">
               <Loader2 className="h-6 w-6 animate-spin text-[#4B4594]" />
               <p className="text-sm text-[#8A7BAB]">Verifying reset link…</p>
             </div>
-          ) : !sessionReady ? (
+          )}
+
+          {step === 'error' && (
             <div className="space-y-4 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
               <p className="text-center text-sm text-red-600" role="alert">{error}</p>
               <button
@@ -114,7 +166,52 @@ export function ResetPasswordPage({ onComplete }) {
                 Back to sign in
               </button>
             </div>
-          ) : (
+          )}
+
+          {step === 'mfa' && (
+            <form onSubmit={handleMfaSubmit} className="space-y-3.5 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
+              <div className="text-center">
+                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#F4F0FF]">
+                  <Shield className="h-5 w-5 text-[#4B4594]" aria-hidden />
+                </div>
+                <h1 className="text-lg font-bold text-[#4B4594]">Verify authenticator</h1>
+                <p className="mt-1 text-xs text-[#8A7BAB]">
+                  This account uses two-factor authentication. Enter your app code to continue resetting your password.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="rp-mfa" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">
+                  Authenticator code
+                </label>
+                <input
+                  id="rp-mfa"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-[rgba(74,20,140,0.14)] bg-[#FAFAFE] px-4 py-[0.65rem] text-center font-mono text-lg tracking-widest text-[#2D1B69] outline-none"
+                  autoFocus
+                />
+              </div>
+
+              {error && (
+                <p className="text-center text-xs text-red-600" role="alert">{error}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={busy || mfaCode.trim().length < 6}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4B4594] py-2.5 text-sm font-semibold text-white transition hover:bg-[#5a529f] disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Continue'}
+              </button>
+            </form>
+          )}
+
+          {step === 'password' && (
             <form onSubmit={handleSubmit} className="space-y-3.5 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
               <div className="text-center">
                 <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#F4F0FF]">

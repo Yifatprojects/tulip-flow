@@ -187,6 +187,9 @@ function authErrorMessage(error) {
   if (/403|forbidden|not allowed/i.test(msg)) {
     return 'Password could not be updated (access denied). Request a fresh reset link and complete the form within a few minutes.'
   }
+  if (/aal2|aal 2/i.test(msg)) {
+    return 'Your account uses two-factor authentication. Enter your authenticator code on this page before updating your password.'
+  }
   if (/401|jwt|session|expired|invalid/i.test(msg)) {
     return EXPIRED_MSG
   }

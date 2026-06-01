@@ -32,3 +32,7 @@ Or rely on `{{ .ConfirmationURL }}` with `redirectTo` set to `https://tulip-flow
 
 - **Site URL**: `https://tulip-flow.vercel.app`
 - **Redirect URLs**: `https://tulip-flow.vercel.app/reset-password`, `http://localhost:5173/reset-password`
+
+## MFA-enabled accounts
+
+If the user has TOTP/MFA enabled, Supabase requires an **AAL2** session before `updateUser({ password })`. The reset page asks for the **authenticator code** first, then the new password ([supabase/auth#2091](https://github.com/supabase/auth/issues/2091)).
