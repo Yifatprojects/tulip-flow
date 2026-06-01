@@ -18,6 +18,7 @@ import { CatalogsManagementModal } from './CatalogsManagement'
 import UploadsManagementModal from './UploadsManagement'
 import BudgetUploadsManagementModal from './BudgetUploadsManagement'
 import { LoginPage } from './LoginPage'
+import { ResetPasswordPage } from './ResetPasswordPage'
 import SettingsPage from './SettingsPage'
 import MFAComponent from './MFAComponent'
 
@@ -404,6 +405,14 @@ function isPrintCode(code) {
 }
 
 const DASHBOARD_PAGE_SIZE = 1000
+
+function isPasswordRecoveryFromUrl() {
+  if (typeof window === 'undefined') return false
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
+  const hashParams = new URLSearchParams(hash)
+  const searchParams = new URLSearchParams(window.location.search)
+  return hashParams.get('type') === 'recovery' || searchParams.get('type') === 'recovery'
+}
 
 function dashboardNormId(v) {
   return String(v ?? '').trim()
@@ -1498,6 +1507,7 @@ function DashboardSummaryRow({ studioOptions = [] }) {
 export default function App() {
   const [session, setSession] = useState(undefined)
   const [mfaStatus, setMfaStatus] = useState('loading')
+  const [passwordRecovery, setPasswordRecovery] = useState(() => isPasswordRecoveryFromUrl())
   const [currentPage, setCurrentPage] = useState('dashboard') // 'dashboard' | 'settings'
 
   const recheckMfa = useCallback(async ({ silent = false } = {}) => {
@@ -1523,22 +1533,37 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => setSession(s ?? null))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s ?? null))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true)
+      }
+      setSession(s ?? null)
+    })
     return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
+    if (isPasswordRecoveryFromUrl()) setPasswordRecovery(true)
+  }, [])
+
+  const completePasswordRecovery = useCallback(() => {
+    setPasswordRecovery(false)
+    setSession(null)
+    setMfaStatus('required')
+  }, [])
+
+  useEffect(() => {
     if (session === undefined) return
-    if (!session) {
+    if (!session || passwordRecovery) {
       setMfaStatus('required')
       return
     }
     void recheckMfa()
-  }, [session, recheckMfa])
+  }, [session, recheckMfa, passwordRecovery])
 
   // Re-validate MFA after bfcache restore or tab focus (prevents Back-button bypass).
   useEffect(() => {
-    if (!session) return
+    if (!session || passwordRecovery) return
 
     const onPageShow = () => { void recheckMfa({ silent: true }) }
     const onVisibility = () => {
@@ -1557,7 +1582,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('popstate', onPopState)
     }
-  }, [session, recheckMfa])
+  }, [session, recheckMfa, passwordRecovery])
   const [movies, setMovies] = useState(null)
   const [movieBudgetTotals, setMovieBudgetTotals] = useState({})
   const [movieActualTotals, setMovieActualTotals] = useState({})
@@ -2557,8 +2582,11 @@ export default function App() {
   }
 
   // ── auth gates ────────────────────────────────────────────────────────────
-  // ── auth gates ────────────────────────────────────────────────────────────
-if (session === undefined || (session && mfaStatus === 'loading')) {
+if (passwordRecovery) {
+  return <ResetPasswordPage onComplete={completePasswordRecovery} />
+}
+
+if (session === undefined || (session && mfaStatus === 'loading' && !passwordRecovery)) {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6]">
       <Loader2 className="h-8 w-8 animate-spin text-[#4B4594]" />
