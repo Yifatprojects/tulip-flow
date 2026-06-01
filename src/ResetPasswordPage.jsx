@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Loader2, Lock, ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { establishRecoverySession, clearRecoverySessionFlag, isRecoverySessionActive, cleanRecoveryUrl, mapPasswordUpdateError } from './lib/authRecovery';
+import {
+  establishRecoverySession,
+  clearRecoverySessionFlag,
+  isRecoverySessionActive,
+  cleanRecoveryUrl,
+  mapPasswordUpdateError,
+  ensureFreshRecoverySession,
+} from './lib/authRecovery';
 import { validatePassword, passwordsMatch, PASSWORD_POLICY_MESSAGE } from './lib/passwordPolicy';
 import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
@@ -62,12 +69,7 @@ export function ResetPasswordPage({ onComplete }) {
         throw new Error('Your reset session has expired. Please request a new link from the login page.');
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setSessionReady(false);
-        clearRecoverySessionFlag();
-        throw new Error('Your reset session has expired. Please request a new link from the login page.');
-      }
+      await ensureFreshRecoverySession();
 
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;

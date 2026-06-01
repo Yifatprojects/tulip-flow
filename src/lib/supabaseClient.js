@@ -7,9 +7,7 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Recovery tokens are exchanged manually on /reset-password (avoids races with stale sessions).
-    detectSessionInUrl: false,
-    flowType: 'pkce',
+    detectSessionInUrl: true,
     persistSession: true,
     autoRefreshToken: true,
   },
