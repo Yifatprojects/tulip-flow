@@ -1550,7 +1550,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (isResetPasswordRoute() || isPasswordRecoveryFromUrl()) setPasswordRecovery(true)
+    if (isResetPasswordRoute() || isPasswordRecoveryFromUrl()) {
+      setPasswordRecovery(true)
+    }
   }, [])
 
   const completePasswordRecovery = useCallback(() => {
@@ -2617,7 +2619,16 @@ if (session === undefined || (session && mfaStatus === 'loading' && !passwordRec
     </div>
   )
 }
-if (!session) return <LoginPage />
+if (!session) {
+  return (
+    <LoginPage
+      onSessionEstablished={(s) => {
+        setSession(s)
+        setMfaStatus('loading')
+      }}
+    />
+  )
+}
 
 // Dashboard and all authenticated routes require AAL2 (MFA verified in this session).
 if (mfaStatus !== 'verified') {

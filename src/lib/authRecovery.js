@@ -21,6 +21,7 @@ export function isRecoverySessionActive() {
 
 export function clearRecoverySessionFlag() {
   recoverySessionActive = false
+  cachedEstablishResult = null
   try {
     sessionStorage.removeItem(RECOVERY_FLAG_KEY)
     sessionStorage.removeItem(SNAPSHOT_KEY)
@@ -99,16 +100,46 @@ function hasRecoveryFlowInTab() {
   }
 }
 
+/** Live URL only (no snapshot) — for App routing so login is not hijacked by stale reset tokens. */
 export function isPasswordRecoveryFromUrl() {
   if (typeof window === 'undefined') return false
+  const search = window.location.search
+  const hash = window.location.hash
+  if (!urlHasAuthParams(search, hash)) return false
   if (parseAuthErrorFromUrl()) return false
-  const tokens = parseRecoveryTokensFromUrl()
+  const tokens = parseRecoveryTokensFromLiveUrl()
   return Boolean(
     tokens.code ||
       tokens.accessToken ||
-      (tokens.tokenHash && tokens.type === 'recovery') ||
-      tokens.type === 'recovery',
+      (tokens.tokenHash && tokens.type === 'recovery'),
   )
+}
+
+function parseRecoveryTokensFromLiveUrl() {
+  if (typeof window === 'undefined') {
+    return {
+      code: null,
+      accessToken: null,
+      refreshToken: null,
+      tokenHash: null,
+      type: null,
+      error: null,
+    }
+  }
+  const searchParams = new URLSearchParams(window.location.search)
+  const hashRaw = window.location.hash
+  const hash = hashRaw.startsWith('#') ? hashRaw.slice(1) : hashRaw
+  const hashParams = new URLSearchParams(hash)
+  return {
+    code: searchParams.get('code'),
+    accessToken: hashParams.get('access_token'),
+    refreshToken: hashParams.get('refresh_token'),
+    tokenHash: searchParams.get('token_hash') || hashParams.get('token_hash'),
+    type: hashParams.get('type') || searchParams.get('type'),
+    error: hashParams.get('error'),
+    errorCode: hashParams.get('error_code'),
+    errorDescription: hashParams.get('error_description'),
+  }
 }
 
 export function isResetPasswordRoute() {

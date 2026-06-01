@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from './lib/supabaseClient'
-import { parseAuthErrorFromUrl, clearAuthErrorFromUrl } from './lib/authRecovery'
+import {
+  parseAuthErrorFromUrl,
+  clearAuthErrorFromUrl,
+  clearRecoverySessionFlag,
+  isResetPasswordRoute,
+} from './lib/authRecovery'
 import tulipFlowBrand from './assets/tulip-flow-brand.png'
 
 function getPasswordResetRedirectUrl() {
@@ -9,7 +14,21 @@ function getPasswordResetRedirectUrl() {
   return `${base}/reset-password`
 }
 
-export function LoginPage() {
+function mapLoginError(error) {
+  const msg = error?.message ?? ''
+  if (/invalid login credentials/i.test(msg)) {
+    return 'Incorrect email or password. Use the password you just set after reset.'
+  }
+  if (/email not confirmed/i.test(msg)) {
+    return 'Please confirm your email before signing in.'
+  }
+  if (/422|weak|password/i.test(msg)) {
+    return msg
+  }
+  return msg || 'Sign in failed. Please try again.'
+}
+
+export function LoginPage({ onSessionEstablished }) {
   const [view, setView] = useState('login') // 'login' | 'forgot'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -20,6 +39,10 @@ export function LoginPage() {
   const [passwordUpdatedMsg, setPasswordUpdatedMsg] = useState(null)
 
   useEffect(() => {
+    if (!isResetPasswordRoute()) {
+      clearRecoverySessionFlag()
+    }
+
     const params = new URLSearchParams(window.location.search)
     if (params.get('passwordUpdated') === '1') {
       setPasswordUpdatedMsg('Password updated successfully. Sign in with your new password and authenticator code.')
@@ -46,19 +69,32 @@ export function LoginPage() {
     }
 
     setBusy(true)
-    const { data, error: authError } = await supabase.auth.signInWithPassword({
-      email: em,
-      password: pw,
-    })
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: em,
+        password: pw,
+      })
 
-    setBusy(false)
+      if (authError) {
+        setError(mapLoginError(authError))
+        return
+      }
 
-    if (authError) {
-      setError(authError.message === 'Invalid login credentials' ? 'Incorrect email or password.' : authError.message)
-      return
+      let session = data.session
+      if (!session) {
+        const { data: sessionData } = await supabase.auth.getSession()
+        session = sessionData.session
+      }
+
+      if (!session) {
+        setError('Sign-in did not start a session. Please try again.')
+        return
+      }
+
+      onSessionEstablished?.(session)
+    } finally {
+      setBusy(false)
     }
-
-    // App routes to MFA then dashboard after session + AAL2 are ready (do not set /dashboard here).
   }
 
   async function handleForgotSubmit(e) {
