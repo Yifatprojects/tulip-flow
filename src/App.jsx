@@ -2,7 +2,7 @@
 import {
   AlertCircle, AlertTriangle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
   ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2,
-  Film, History, LayoutGrid, List, ListChecks, Loader2, LogOut, Plus, PlusCircle,
+  Film, Hash, History, LayoutGrid, List, ListChecks, Loader2, LogOut, Plus, PlusCircle,
   Receipt, RefreshCw, Save, Search, Settings, TrendingUp, Trash2 as Trash2Icon,
   UploadCloud, X, XCircle,
 } from 'lucide-react'
@@ -1924,6 +1924,28 @@ export default function App() {
     return { filmPayload }
   }, [])
 
+  // ── Activity log helpers ───────────────────────────────────────────────────
+  const logActivity = useCallback(async (action_type, description, film_title = null, film_number = null) => {
+    try {
+      await supabase.from('activity_log').insert({ action_type, description, film_title, film_number })
+    } catch (err) {
+      console.warn('[activityLog] insert failed:', err)
+    }
+  }, [])
+
+  const fetchLastActions = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('activity_log')
+        .select('id, action_type, description, film_title, created_at')
+        .order('created_at', { ascending: false })
+        .limit(LAST_ACTIONS_FEED_LIMIT)
+      setLastActions(data ?? [])
+    } catch (err) {
+      console.warn('[activityLog] fetch failed:', err)
+    }
+  }, [])
+
   const executeActiveTableFilmUpdate = useCallback(async (oldFn, newFn, filmPayload, actionMeta = {}) => {
     setActiveTableSaving(true)
     setActiveTableSaveError(null)
@@ -1950,26 +1972,46 @@ export default function App() {
         if (!prev || prev.film_number !== oldFn) return prev
         return { ...prev, ...filmPayload, film_number: newFn }
       })
+
+      const statusLabel = { plan_pre: 'Plan Pre', screening_post: 'Screening Post', final: 'Final' }
+      const activityEntries = []
       if (actionMeta.releaseDateChanged) {
-        const fromLabel = actionMeta.prevReleaseDate || '—'
-        const toLabel = actionMeta.nextReleaseDate || '—'
-        void supabase.from('activity_log').insert({
-          action_type: 'release_date_edit',
-          description: `Release date updated: ${fromLabel} → ${toLabel}`,
-          film_title: actionMeta.filmTitle || null,
-          film_number: newFn,
-        })
-        setLastActions((prev) => ([
-          {
-            id: `tmp_release_${Date.now()}`,
-            action_type: 'release_date_edit',
-            description: `Release date updated: ${fromLabel} → ${toLabel}`,
-            film_title: actionMeta.filmTitle || null,
-            created_at: new Date().toISOString(),
-          },
-          ...(prev ?? []),
-        ].slice(0, LAST_ACTIONS_FEED_LIMIT)))
+        activityEntries.push([
+          'release_date_edit',
+          `Release date updated: ${actionMeta.prevReleaseDate || '—'} → ${actionMeta.nextReleaseDate || '—'}`,
+        ])
       }
+      if (actionMeta.profitCenterChanged) {
+        activityEntries.push([
+          'profit_center_edit',
+          `Profit center updated: ${actionMeta.prevProfitCenter || '—'} → ${actionMeta.nextProfitCenter || '—'}`,
+        ])
+      }
+      if (actionMeta.profitCenter2Changed) {
+        activityEntries.push([
+          'profit_center_edit',
+          `Profit center 2 updated: ${actionMeta.prevProfitCenter2 || '—'} → ${actionMeta.nextProfitCenter2 || '—'}`,
+        ])
+      }
+      if (actionMeta.filmNumberChanged) {
+        activityEntries.push([
+          'film_number_edit',
+          `Film number updated: ${actionMeta.oldFn} → ${actionMeta.newFn}`,
+        ])
+      }
+      if (actionMeta.statusChanged) {
+        activityEntries.push([
+          'status_change',
+          `Status updated: ${statusLabel[actionMeta.prevStatus] ?? actionMeta.prevStatus} → ${statusLabel[actionMeta.nextStatus] ?? actionMeta.nextStatus}`,
+        ])
+      }
+      for (const [actionType, description] of activityEntries) {
+        await logActivity(actionType, description, actionMeta.filmTitle, newFn)
+      }
+      if (activityEntries.length > 0) {
+        void fetchLastActions()
+      }
+
       setActiveTableDraft({})
       setActiveTableConfirmFnChange(null)
       setActiveTableEditingId(null)
@@ -1979,7 +2021,7 @@ export default function App() {
     } finally {
       setActiveTableSaving(false)
     }
-  }, [refreshMovies])
+  }, [refreshMovies, logActivity, fetchLastActions])
 
   const handleActiveTableSave = useCallback(async (originalFilm) => {
     setActiveTableSaveError(null)
@@ -1992,10 +2034,28 @@ export default function App() {
     const { filmPayload } = buildActiveTableSaveBundle(activeTableDraft)
     const prevReleaseDate = originalFilm.release_date ? String(originalFilm.release_date).slice(0, 10) : ''
     const nextReleaseDate = activeTableDraft.release_date ? String(activeTableDraft.release_date).slice(0, 10) : ''
+    const prevProfitCenter = String(originalFilm.profit_center ?? '').trim()
+    const nextProfitCenter = String(activeTableDraft.profit_center ?? '').trim()
+    const prevProfitCenter2 = String(originalFilm.profit_center_2 ?? '').trim()
+    const nextProfitCenter2 = String(activeTableDraft.profit_center_2 ?? '').trim()
+    const prevStatus = originalFilm.budget_status || 'plan_pre'
+    const nextStatus = filmPayload.budget_status ?? prevStatus
     const actionMeta = {
       releaseDateChanged: prevReleaseDate !== nextReleaseDate,
       prevReleaseDate: prevReleaseDate || null,
       nextReleaseDate: nextReleaseDate || null,
+      profitCenterChanged: prevProfitCenter !== nextProfitCenter,
+      prevProfitCenter,
+      nextProfitCenter,
+      profitCenter2Changed: prevProfitCenter2 !== nextProfitCenter2,
+      prevProfitCenter2,
+      nextProfitCenter2,
+      filmNumberChanged: newFn !== oldFn,
+      oldFn,
+      newFn,
+      statusChanged: filmPayload.budget_status != null && prevStatus !== filmPayload.budget_status,
+      prevStatus,
+      nextStatus: filmPayload.budget_status,
       filmTitle: originalFilm.title_en || originalFilm.title_he || null,
     }
     if (newFn !== oldFn) {
@@ -2004,28 +2064,6 @@ export default function App() {
       await executeActiveTableFilmUpdate(oldFn, oldFn, filmPayload, actionMeta)
     }
   }, [activeTableDraft, buildActiveTableSaveBundle, executeActiveTableFilmUpdate])
-
-  // ── Activity log helpers ───────────────────────────────────────────────────
-  const logActivity = useCallback(async (action_type, description, film_title = null, film_number = null) => {
-    try {
-      await supabase.from('activity_log').insert({ action_type, description, film_title, film_number })
-    } catch (err) {
-      console.warn('[activityLog] insert failed:', err)
-    }
-  }, [])
-
-  const fetchLastActions = useCallback(async () => {
-    try {
-      const { data } = await supabase
-        .from('activity_log')
-        .select('id, action_type, description, film_title, created_at')
-        .order('created_at', { ascending: false })
-        .limit(LAST_ACTIONS_FEED_LIMIT)
-      setLastActions(data ?? [])
-    } catch (err) {
-      console.warn('[activityLog] fetch failed:', err)
-    }
-  }, [])
 
   useEffect(() => {
     if (mfaStatus !== 'verified' || !session) return
@@ -3012,6 +3050,8 @@ if (currentPage === 'settings') {
                           const cfgMap = {
                             status_change:         { Icon: RefreshCw,   iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Status updated for' },
                             release_date_edit:     { Icon: Calendar,    iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Release date updated for' },
+                            profit_center_edit:    { Icon: Hash,        iconColor: '#7B52AB', iconBg: '#F4F0FF', label: 'Profit center updated for' },
+                            film_number_edit:      { Icon: RefreshCw,   iconColor: '#2563EB', iconBg: '#EFF6FF', label: 'Film number updated for' },
                             budget_upload_per_film:{ Icon: UploadCloud, iconColor: '#0D9488', iconBg: '#F0FDFA', label: 'Adpub uploaded for' },
                             budget_edit:           { Icon: Edit2,       iconColor: '#EA580C', iconBg: '#FFF7ED', label: 'Adpub edited for' },
                             movie_added:           { Icon: PlusCircle,  iconColor: '#2FA36B', iconBg: '#F0FBF5', label: 'New film added' },
