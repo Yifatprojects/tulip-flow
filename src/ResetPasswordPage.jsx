@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Loader2, Lock, ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
-import { establishRecoverySession, clearRecoverySessionFlag, isRecoverySessionActive } from './lib/authRecovery';
+import { establishRecoverySession, clearRecoverySessionFlag, isRecoverySessionActive, cleanRecoveryUrl, mapPasswordUpdateError } from './lib/authRecovery';
 import { validatePassword, passwordsMatch, PASSWORD_POLICY_MESSAGE } from './lib/passwordPolicy';
 import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
@@ -16,6 +16,8 @@ export function ResetPasswordPage({ onComplete }) {
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
+    supabase.auth.stopAutoRefresh()
+
     let active = true
 
     void establishRecoverySession().then((result) => {
@@ -30,7 +32,10 @@ export function ResetPasswordPage({ onComplete }) {
       setSessionLoading(false)
     })
 
-    return () => { active = false }
+    return () => {
+      active = false
+      supabase.auth.startAutoRefresh()
+    }
   }, [])
 
   async function handleSubmit(e) {
@@ -71,16 +76,12 @@ export function ResetPasswordPage({ onComplete }) {
       if (updateError) throw updateError;
 
       clearRecoverySessionFlag();
+      cleanRecoveryUrl();
       await supabase.auth.signOut();
       window.history.replaceState(null, '', '/');
       onComplete?.();
     } catch (err) {
-      const msg = err?.message || 'Could not update password. Please try again.';
-      setError(
-        msg.includes('401') || /jwt|session|expired/i.test(msg)
-          ? 'Your reset session has expired. Please request a new link from the login page.'
-          : msg
-      );
+      setError(mapPasswordUpdateError(err));
     } finally {
       setBusy(false);
     }

@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient'
 
-const EXPIRED_MSG = 'This reset link is invalid or has expired. Please request a new one from the login page.'
+const EXPIRED_MSG =
+  'This reset link is invalid or has expired. Request a new link from the login page — only the most recent email works.'
 
 let establishPromise = null
 let recoverySessionActive = false
@@ -19,6 +20,7 @@ export function acknowledgePasswordRecovery() {
 
 export function isPasswordRecoveryFromUrl() {
   if (typeof window === 'undefined') return false
+  if (parseAuthErrorFromUrl()) return false
   const tokens = parseRecoveryTokensFromUrl()
   return Boolean(tokens.code || tokens.accessToken || tokens.type === 'recovery')
 }
@@ -30,7 +32,7 @@ export function isResetPasswordRoute() {
 
 export function parseRecoveryTokensFromUrl() {
   if (typeof window === 'undefined') {
-    return { code: null, accessToken: null, refreshToken: null, type: null }
+    return { code: null, accessToken: null, refreshToken: null, type: null, error: null }
   }
   const searchParams = new URLSearchParams(window.location.search)
   const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
@@ -40,10 +42,38 @@ export function parseRecoveryTokensFromUrl() {
     accessToken: hashParams.get('access_token'),
     refreshToken: hashParams.get('refresh_token'),
     type: hashParams.get('type') || searchParams.get('type'),
+    error: hashParams.get('error'),
+    errorCode: hashParams.get('error_code'),
+    errorDescription: hashParams.get('error_description'),
   }
 }
 
-function cleanRecoveryUrl() {
+export function parseAuthErrorFromUrl() {
+  if (typeof window === 'undefined') return null
+  const { error, errorCode, errorDescription } = parseRecoveryTokensFromUrl()
+  if (!error) return null
+
+  if (errorCode === 'otp_expired') {
+    return 'This password reset link has expired or was already used. Request a new link below — only the most recent email works.'
+  }
+
+  if (errorDescription) {
+    try {
+      return decodeURIComponent(errorDescription.replace(/\+/g, ' '))
+    } catch {
+      return errorDescription.replace(/\+/g, ' ')
+    }
+  }
+
+  return 'Could not complete password reset. Please request a new link.'
+}
+
+export function clearAuthErrorFromUrl() {
+  if (typeof window === 'undefined') return
+  window.history.replaceState(null, '', window.location.pathname || '/')
+}
+
+export function cleanRecoveryUrl() {
   if (typeof window === 'undefined') return
   window.history.replaceState(null, '', window.location.pathname || '/reset-password')
 }
@@ -53,19 +83,18 @@ function markRecoveryReady() {
   return { ok: true }
 }
 
-export async function verifyRecoverySession() {
-  if (!recoverySessionActive) {
-    return { ok: false, message: EXPIRED_MSG }
+function authErrorMessage(error) {
+  const msg = error?.message ?? ''
+  if (/403|forbidden|not allowed/i.test(msg)) {
+    return 'Password could not be updated (access denied). Request a fresh reset link and complete the form within a few minutes.'
   }
-  const { data: { session }, error } = await supabase.auth.getSession()
-  if (error || !session) {
-    recoverySessionActive = false
-    return { ok: false, message: EXPIRED_MSG }
+  if (/401|jwt|session|expired|invalid/i.test(msg)) {
+    return EXPIRED_MSG
   }
-  return { ok: true, session }
+  return msg || EXPIRED_MSG
 }
 
-function waitForPasswordRecoveryEvent(timeoutMs = 15000) {
+function waitForPasswordRecoveryEvent(timeoutMs = 20000) {
   return new Promise((resolve) => {
     let settled = false
 
@@ -85,29 +114,25 @@ function waitForPasswordRecoveryEvent(timeoutMs = 15000) {
     })
 
     const timer = setTimeout(() => done(false), timeoutMs)
+
+    void supabase.auth.getSession()
   })
 }
 
 async function applyTokensFromUrl(tokens) {
   if (tokens.accessToken && tokens.refreshToken) {
-    await supabase.auth.signOut({ scope: 'local' })
     const { error } = await supabase.auth.setSession({
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
     })
-    if (error) return { ok: false, message: EXPIRED_MSG }
-    markRecoveryReady()
-    cleanRecoveryUrl()
-    return { ok: true }
+    if (error) return { ok: false, message: authErrorMessage(error) }
+    return markRecoveryReady()
   }
 
   if (tokens.code) {
-    await supabase.auth.signOut({ scope: 'local' })
     const { error } = await supabase.auth.exchangeCodeForSession(tokens.code)
-    if (error) return { ok: false, message: EXPIRED_MSG }
-    markRecoveryReady()
-    cleanRecoveryUrl()
-    return { ok: true }
+    if (error) return { ok: false, message: authErrorMessage(error) }
+    return markRecoveryReady()
   }
 
   return null
@@ -115,23 +140,36 @@ async function applyTokensFromUrl(tokens) {
 
 async function establishRecoverySessionOnce() {
   recoverySessionActive = false
+
+  const linkError = parseAuthErrorFromUrl()
+  if (linkError) {
+    clearAuthErrorFromUrl()
+    return { ok: false, message: linkError }
+  }
+
   const tokens = parseRecoveryTokensFromUrl()
   const hasUrlCredentials = Boolean(tokens.code || tokens.accessToken)
 
-  const fromUrl = await applyTokensFromUrl(tokens)
-  if (fromUrl) return fromUrl
+  if (hasUrlCredentials) {
+    const fromUrl = await applyTokensFromUrl(tokens)
+    if (!fromUrl?.ok) return fromUrl
 
-  if (hasUrlCredentials || tokens.type === 'recovery') {
-    const waited = await waitForPasswordRecoveryEvent()
-    if (waited.ok) cleanRecoveryUrl()
-    return waited
+    const waited = await waitForPasswordRecoveryEvent(5000)
+    if (waited.ok) return waited
+
+    if (recoverySessionActive) return { ok: true }
+    return { ok: false, message: EXPIRED_MSG }
   }
 
-  await supabase.auth.signOut({ scope: 'local' })
+  if (tokens.type === 'recovery') {
+    const waited = await waitForPasswordRecoveryEvent()
+    if (waited.ok) return waited
+    return { ok: false, message: EXPIRED_MSG }
+  }
+
   return { ok: false, message: EXPIRED_MSG }
 }
 
-/** Single-flight: avoids StrictMode double-mount clearing the hash before session is stored. */
 export function establishRecoverySession() {
   if (!establishPromise) {
     establishPromise = establishRecoverySessionOnce().finally(() => {
@@ -139,4 +177,8 @@ export function establishRecoverySession() {
     })
   }
   return establishPromise
+}
+
+export function mapPasswordUpdateError(error) {
+  return authErrorMessage(error)
 }

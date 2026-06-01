@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ArrowLeft, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { supabase } from './lib/supabaseClient'
+import { parseAuthErrorFromUrl, clearAuthErrorFromUrl } from './lib/authRecovery'
 import tulipFlowBrand from './assets/tulip-flow-brand.png'
 
 function getPasswordResetRedirectUrl() {
@@ -16,6 +17,15 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [forgotSent, setForgotSent] = useState(false)
+
+  useEffect(() => {
+    const linkError = parseAuthErrorFromUrl()
+    if (linkError) {
+      setError(linkError)
+      setView('forgot')
+      clearAuthErrorFromUrl()
+    }
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
