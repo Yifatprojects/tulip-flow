@@ -19,6 +19,7 @@ import UploadsManagementModal from './UploadsManagement'
 import BudgetUploadsManagementModal from './BudgetUploadsManagement'
 import { LoginPage } from './LoginPage'
 import { ResetPasswordPage } from './ResetPasswordPage'
+import { isPasswordRecoveryFromUrl, isResetPasswordRoute } from './lib/authRecovery'
 import SettingsPage from './SettingsPage'
 import MFAComponent from './MFAComponent'
 
@@ -405,14 +406,6 @@ function isPrintCode(code) {
 }
 
 const DASHBOARD_PAGE_SIZE = 1000
-
-function isPasswordRecoveryFromUrl() {
-  if (typeof window === 'undefined') return false
-  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
-  const hashParams = new URLSearchParams(hash)
-  const searchParams = new URLSearchParams(window.location.search)
-  return hashParams.get('type') === 'recovery' || searchParams.get('type') === 'recovery'
-}
 
 function dashboardNormId(v) {
   return String(v ?? '').trim()
@@ -1507,7 +1500,9 @@ function DashboardSummaryRow({ studioOptions = [] }) {
 export default function App() {
   const [session, setSession] = useState(undefined)
   const [mfaStatus, setMfaStatus] = useState('loading')
-  const [passwordRecovery, setPasswordRecovery] = useState(() => isPasswordRecoveryFromUrl())
+  const [passwordRecovery, setPasswordRecovery] = useState(
+    () => isPasswordRecoveryFromUrl() || isResetPasswordRoute(),
+  )
   const [currentPage, setCurrentPage] = useState('dashboard') // 'dashboard' | 'settings'
 
   const recheckMfa = useCallback(async ({ silent = false } = {}) => {
@@ -1520,7 +1515,14 @@ export default function App() {
       }
 
       const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      if (error) throw error
+      if (error) {
+        // Recovery / AAL1 sessions cannot query MFA — do not treat as logged-in dashboard.
+        if (/mfa|aal|factor/i.test(error.message ?? '')) {
+          setMfaStatus('required')
+          return false
+        }
+        throw error
+      }
 
       const verified = data.currentLevel === 'aal2'
       setMfaStatus(verified ? 'verified' : 'required')
@@ -1543,7 +1545,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (isPasswordRecoveryFromUrl()) setPasswordRecovery(true)
+    if (isPasswordRecoveryFromUrl() || isResetPasswordRoute()) setPasswordRecovery(true)
   }, [])
 
   const completePasswordRecovery = useCallback(() => {
