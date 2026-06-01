@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Loader2, Lock, ArrowLeft, Shield } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, ArrowLeft, Shield, CheckCircle2 } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import {
   establishRecoverySession,
@@ -20,7 +20,7 @@ import { validatePassword, passwordsMatch, PASSWORD_POLICY_MESSAGE } from './lib
 import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
 export function ResetPasswordPage({ onComplete }) {
-  const [step, setStep] = useState('loading'); // loading | error | mfa | password
+  const [step, setStep] = useState('loading'); // loading | error | mfa | password | success
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
@@ -120,17 +120,28 @@ export function ResetPasswordPage({ onComplete }) {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
 
-      clearRecoverySessionFlag();
-      cleanRecoveryUrl();
-      await supabase.auth.signOut();
-      window.history.replaceState(null, '', '/');
-      onComplete?.();
+      setStep('success');
     } catch (err) {
       const msg = mapPasswordUpdateError(err);
       setError(msg);
       if (/authenticator|two-factor|aal2/i.test(msg)) {
         setStep('mfa');
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finishAndGoToSignIn() {
+    setBusy(true);
+    try {
+      clearRecoverySessionFlag();
+      cleanRecoveryUrl();
+      await supabase.auth.signOut();
+      window.history.replaceState(null, '', '/?passwordUpdated=1');
+      onComplete?.();
+    } catch (err) {
+      setError(err?.message || 'Could not finish. Please sign in from the home page.');
     } finally {
       setBusy(false);
     }
@@ -209,6 +220,28 @@ export function ResetPasswordPage({ onComplete }) {
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Continue'}
               </button>
             </form>
+          )}
+
+          {step === 'success' && (
+            <div className="space-y-4 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
+              <div className="text-center">
+                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" aria-hidden />
+                </div>
+                <h1 className="text-lg font-bold text-[#4B4594]">Password updated</h1>
+                <p className="mt-2 text-xs leading-relaxed text-[#8A7BAB]">
+                  Your password was changed successfully. Sign in with your <strong>new password</strong> and authenticator code to open the dashboard.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void finishAndGoToSignIn()}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4B4594] py-2.5 text-sm font-semibold text-white transition hover:bg-[#5a529f] disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Continue to sign in'}
+              </button>
+            </div>
           )}
 
           {step === 'password' && (

@@ -1560,6 +1560,22 @@ export default function App() {
     setMfaStatus('required')
   }, [])
 
+  // Keep URL in sync: login when logged out; dashboard only when MFA verified.
+  useEffect(() => {
+    if (session === undefined) return
+    const path = window.location.pathname
+    if (!session) {
+      if (path === '/dashboard' || path === '/settings') {
+        const search = window.location.search
+        window.history.replaceState(null, '', `/${search}`)
+      }
+      return
+    }
+    if (mfaStatus === 'verified' && (path === '/' || path === '')) {
+      window.history.replaceState(null, '', '/dashboard')
+    }
+  }, [session, mfaStatus])
+
   useEffect(() => {
     if (session === undefined) return
     if (!session || passwordRecovery) {
@@ -2615,8 +2631,10 @@ if (mfaStatus !== 'verified') {
           <p className="mt-1 text-sm text-[#8A7BAB]">Two-factor authentication required</p>
         </div>
         <MFAComponent onVerified={async () => {
-          window.history.replaceState(null, '', window.location.pathname || '/')
-          await recheckMfa()
+          const verified = await recheckMfa()
+          if (verified) {
+            window.history.replaceState(null, '', '/dashboard')
+          }
         }} />
         <div className="mt-4 text-center">
           <button type="button" onClick={() => supabase.auth.signOut()}

@@ -17,8 +17,15 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [forgotSent, setForgotSent] = useState(false)
+  const [passwordUpdatedMsg, setPasswordUpdatedMsg] = useState(null)
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('passwordUpdated') === '1') {
+      setPasswordUpdatedMsg('Password updated successfully. Sign in with your new password and authenticator code.')
+      window.history.replaceState(null, '', '/')
+    }
+
     const linkError = parseAuthErrorFromUrl()
     if (linkError) {
       setError(linkError)
@@ -51,9 +58,7 @@ export function LoginPage() {
       return
     }
 
-    if (data.user) {
-      window.history.replaceState(null, '', '/dashboard')
-    }
+    // App routes to MFA then dashboard after session + AAL2 are ready (do not set /dashboard here).
   }
 
   async function handleForgotSubmit(e) {
@@ -113,6 +118,11 @@ export function LoginPage() {
 
           {view === 'login' ? (
             <form onSubmit={handleSubmit} className="space-y-3.5 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
+              {passwordUpdatedMsg && (
+                <p className="rounded-lg bg-green-50 px-3 py-2 text-center text-xs text-green-800 ring-1 ring-green-200" role="status">
+                  {passwordUpdatedMsg}
+                </p>
+              )}
               <div>
                 <label htmlFor="lp-email" className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#4A148C]">Email</label>
                 <input
