@@ -16,6 +16,23 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        var path = location.pathname;
+        var onReset = path === '/reset-password' || path.endsWith('/reset-password');
+        if (onReset) return;
+        var combined = location.search + location.hash;
+        var isRecovery =
+          /(?:^|[?&#])code=/.test(combined) ||
+          /access_token=/.test(combined) ||
+          /token_hash=/.test(combined) ||
+          /type=recovery/.test(combined) ||
+          /(?:^|[?&#])error=/.test(combined);
+        if (isRecovery) {
+          location.replace(location.origin + '/reset-password' + location.search + location.hash);
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

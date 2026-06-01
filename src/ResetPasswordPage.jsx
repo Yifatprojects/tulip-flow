@@ -16,8 +16,6 @@ export function ResetPasswordPage({ onComplete }) {
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.stopAutoRefresh()
-
     let active = true
 
     void establishRecoverySession().then((result) => {
@@ -34,7 +32,6 @@ export function ResetPasswordPage({ onComplete }) {
 
     return () => {
       active = false
-      supabase.auth.startAutoRefresh()
     }
   }, [])
 

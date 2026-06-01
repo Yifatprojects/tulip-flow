@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient'
 const EXPIRED_MSG =
   'This reset link is invalid or has expired. Request a new link from the login page — only the most recent email works.'
 
+const RESET_PATH = '/reset-password'
+
 let establishPromise = null
 let recoverySessionActive = false
 
@@ -22,17 +24,30 @@ export function isPasswordRecoveryFromUrl() {
   if (typeof window === 'undefined') return false
   if (parseAuthErrorFromUrl()) return false
   const tokens = parseRecoveryTokensFromUrl()
-  return Boolean(tokens.code || tokens.accessToken || tokens.type === 'recovery')
+  return Boolean(
+    tokens.code ||
+      tokens.accessToken ||
+      (tokens.tokenHash && tokens.type === 'recovery') ||
+      tokens.type === 'recovery',
+  )
 }
 
 export function isResetPasswordRoute() {
   if (typeof window === 'undefined') return false
-  return window.location.pathname === '/reset-password' || window.location.pathname.endsWith('/reset-password')
+  const path = window.location.pathname
+  return path === RESET_PATH || path.endsWith(RESET_PATH)
 }
 
 export function parseRecoveryTokensFromUrl() {
   if (typeof window === 'undefined') {
-    return { code: null, accessToken: null, refreshToken: null, type: null, error: null }
+    return {
+      code: null,
+      accessToken: null,
+      refreshToken: null,
+      tokenHash: null,
+      type: null,
+      error: null,
+    }
   }
   const searchParams = new URLSearchParams(window.location.search)
   const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash
@@ -41,6 +56,7 @@ export function parseRecoveryTokensFromUrl() {
     code: searchParams.get('code'),
     accessToken: hashParams.get('access_token'),
     refreshToken: hashParams.get('refresh_token'),
+    tokenHash: searchParams.get('token_hash') || hashParams.get('token_hash'),
     type: hashParams.get('type') || searchParams.get('type'),
     error: hashParams.get('error'),
     errorCode: hashParams.get('error_code'),
@@ -70,12 +86,12 @@ export function parseAuthErrorFromUrl() {
 
 export function clearAuthErrorFromUrl() {
   if (typeof window === 'undefined') return
-  window.history.replaceState(null, '', window.location.pathname || '/')
+  window.history.replaceState(null, '', RESET_PATH)
 }
 
 export function cleanRecoveryUrl() {
   if (typeof window === 'undefined') return
-  window.history.replaceState(null, '', window.location.pathname || '/reset-password')
+  window.history.replaceState(null, '', RESET_PATH)
 }
 
 function markRecoveryReady() {
@@ -94,29 +110,17 @@ function authErrorMessage(error) {
   return msg || EXPIRED_MSG
 }
 
-function waitForPasswordRecoveryEvent(timeoutMs = 20000) {
-  return new Promise((resolve) => {
-    let settled = false
+async function clearStaleLocalSession() {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session) {
+    await supabase.auth.signOut({ scope: 'local' })
+  }
+}
 
-    const done = (ok) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      subscription.unsubscribe()
-      if (ok) resolve(markRecoveryReady())
-      else resolve({ ok: false, message: EXPIRED_MSG })
-    }
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY' && session) {
-        done(true)
-      }
-    })
-
-    const timer = setTimeout(() => done(false), timeoutMs)
-
-    void supabase.auth.getSession()
-  })
+async function verifyActiveSession() {
+  const { data: { session }, error } = await supabase.auth.getSession()
+  if (error || !session?.access_token) return false
+  return true
 }
 
 async function applyTokensFromUrl(tokens) {
@@ -135,6 +139,15 @@ async function applyTokensFromUrl(tokens) {
     return markRecoveryReady()
   }
 
+  if (tokens.tokenHash && tokens.type === 'recovery') {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokens.tokenHash,
+      type: 'recovery',
+    })
+    if (error) return { ok: false, message: authErrorMessage(error) }
+    return markRecoveryReady()
+  }
+
   return null
 }
 
@@ -148,23 +161,26 @@ async function establishRecoverySessionOnce() {
   }
 
   const tokens = parseRecoveryTokensFromUrl()
-  const hasUrlCredentials = Boolean(tokens.code || tokens.accessToken)
+  const hasUrlCredentials = Boolean(
+    tokens.code || tokens.accessToken || (tokens.tokenHash && tokens.type === 'recovery'),
+  )
 
   if (hasUrlCredentials) {
+    await clearStaleLocalSession()
     const fromUrl = await applyTokensFromUrl(tokens)
     if (!fromUrl?.ok) return fromUrl
 
-    const waited = await waitForPasswordRecoveryEvent(5000)
-    if (waited.ok) return waited
+    cleanRecoveryUrl()
 
-    if (recoverySessionActive) return { ok: true }
-    return { ok: false, message: EXPIRED_MSG }
+    const valid = await verifyActiveSession()
+    if (!valid) return { ok: false, message: EXPIRED_MSG }
+    return markRecoveryReady()
   }
 
-  if (tokens.type === 'recovery') {
-    const waited = await waitForPasswordRecoveryEvent()
-    if (waited.ok) return waited
-    return { ok: false, message: EXPIRED_MSG }
+  // Page refresh mid-flow: session may still be in storage from a valid link.
+  if (isResetPasswordRoute()) {
+    const valid = await verifyActiveSession()
+    if (valid) return markRecoveryReady()
   }
 
   return { ok: false, message: EXPIRED_MSG }

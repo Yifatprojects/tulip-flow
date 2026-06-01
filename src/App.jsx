@@ -1501,7 +1501,7 @@ export default function App() {
   const [session, setSession] = useState(undefined)
   const [mfaStatus, setMfaStatus] = useState('loading')
   const [passwordRecovery, setPasswordRecovery] = useState(
-    () => isPasswordRecoveryFromUrl() || isResetPasswordRoute(),
+    () => isResetPasswordRoute() || isPasswordRecoveryFromUrl(),
   )
   const [currentPage, setCurrentPage] = useState('dashboard') // 'dashboard' | 'settings'
 
@@ -1552,7 +1552,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (isPasswordRecoveryFromUrl() || isResetPasswordRoute()) setPasswordRecovery(true)
+    if (isResetPasswordRoute() || isPasswordRecoveryFromUrl()) setPasswordRecovery(true)
   }, [])
 
   const completePasswordRecovery = useCallback(() => {
