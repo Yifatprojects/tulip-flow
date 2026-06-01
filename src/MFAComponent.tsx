@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, Shield } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
+import { formatMfaError } from './lib/mfaElevate';
+import tulipFlowBrand from './assets/tulip-flow-brand.png';
 
 function getIssuer(): string {
   const raw =
@@ -40,7 +43,6 @@ async function enrollTotpFactor(): Promise<{ qrCode: string; factorId: string }>
 
   let { data, error } = await supabase.auth.mfa.enroll(getMfaEnrollOptions());
 
-  // Stale factor may exist in DB but not appear in listFactors — retry with a unique name.
   if (error && /friendly name|already exists/i.test(error.message)) {
     const suffix = Date.now().toString(36);
     ({ data, error } = await supabase.auth.mfa.enroll(getMfaEnrollOptions(suffix)));
@@ -67,29 +69,46 @@ function QrCodeDisplay({ qrCode }: { qrCode: string }) {
   const isDataUri = qrCode.startsWith('data:');
 
   return (
-    <div className="flex flex-col items-center mb-6">
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 shadow-sm">
+    <div className="flex flex-col items-center">
+      <div className="rounded-xl border border-[rgba(74,20,140,0.14)] bg-[#FAFAFE] p-4 ring-1 ring-[rgba(74,20,140,0.08)]">
         {isDataUri ? (
-          <img src={qrCode} alt="Authenticator QR code" className="h-48 w-48 object-contain" />
+          <img src={qrCode} alt="Authenticator QR code" className="h-40 w-40 object-contain sm:h-44 sm:w-44" />
         ) : (
           <div
-            className="flex h-48 w-48 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
+            className="flex h-40 w-40 items-center justify-center sm:h-44 sm:w-44 [&>svg]:h-full [&>svg]:w-full"
             dangerouslySetInnerHTML={{ __html: qrCode }}
           />
         )}
       </div>
-      <p className="mt-3 text-sm text-gray-500 text-center">
-        Scan this with your authenticator app
+      <p className="mt-2 text-center text-[10px] leading-relaxed text-[#6A5B88]">
+        Scan with your authenticator app, then enter the 6-digit code below.
       </p>
     </div>
   );
 }
 
-export default function MFAComponent({ onVerified }) {
+function LoginBackdrop() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div className="login-page__wash h-full w-full" />
+      <div className="login-page__mist-a" />
+      <div className="login-page__mist-b" />
+      <div className="login-page__edge" />
+    </div>
+  );
+}
+
+type MFAComponentProps = {
+  onVerified?: () => void | Promise<void>;
+  onSignOut?: () => void;
+};
+
+export default function MFAComponent({ onVerified, onSignOut }: MFAComponentProps) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [factorId, setFactorId] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [existingFactor, setExistingFactor] = useState(false);
 
@@ -102,7 +121,7 @@ export default function MFAComponent({ onVerified }) {
       setFactorId(result.factorId);
       setExistingFactor(!result.qrCode);
     } catch (err) {
-      setError(err?.message || 'Could not start MFA setup. Please try again.');
+      setError(err instanceof Error ? err.message : 'Could not start MFA setup. Please try again.');
       setQrCode(null);
       setFactorId(null);
       setExistingFactor(false);
@@ -115,8 +134,14 @@ export default function MFAComponent({ onVerified }) {
     void loadMfa();
   }, [loadMfa]);
 
-  const verifyMFA = async () => {
-    if (!factorId || !code.trim()) return;
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!factorId || code.trim().length < 6) {
+      setError('Enter the 6-digit code from your authenticator app.');
+      return;
+    }
+
+    setBusy(true);
     setError(null);
     try {
       const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
@@ -138,72 +163,112 @@ export default function MFAComponent({ onVerified }) {
         throw new Error('MFA verification did not complete. Please try again.');
       }
 
-      const target = window.location.pathname + window.location.search + window.location.hash;
-      window.history.replaceState(null, '', target || '/');
-
       if (onVerified) await onVerified();
     } catch (err) {
-      setError(
-        err.message === 'Invalid TOTP code entered'
-          ? 'Wrong code. Make sure your phone clock is synced and try again.'
-          : err.message || 'Verification failed. Please try again.'
-      );
+      setError(formatMfaError(err));
+    } finally {
+      setBusy(false);
     }
-  };
-
-  if (loading) {
-    return (
-      <div className="p-6 border border-gray-200 rounded-xl shadow-lg bg-white text-center">
-        <p className="text-sm text-gray-500">Loading...</p>
-      </div>
-    );
   }
 
+  const subtitle = qrCode
+    ? 'Set up two-factor authentication to secure your account.'
+    : existingFactor
+      ? 'Enter the code from your authenticator app to continue to the dashboard.'
+      : 'Enter the code from your authenticator app.';
+
   return (
-    <div className="p-6 border border-gray-200 rounded-xl shadow-lg bg-white">
-      <h2 className="text-xl font-bold mb-6 text-gray-800 text-center">Two-Factor Authentication</h2>
+    <div className="relative isolate flex min-h-dvh w-full flex-col overflow-hidden">
+      <LoginBackdrop />
+      <div className="relative z-[1] flex flex-1 flex-col items-center justify-center px-4 py-6 sm:py-8">
+        <div className="w-full max-w-[400px] overflow-hidden rounded-[1.25rem] border border-white/60 bg-white shadow-[0_32px_80px_-16px_rgba(45,27,105,0.2)] backdrop-blur-[12px]">
+          <div className="bg-white px-7 pt-6 sm:px-9 sm:pt-7">
+            <div className="relative mx-auto flex w-full max-w-[280px] justify-center">
+              <img
+                src={tulipFlowBrand}
+                alt="Tulip Flow"
+                className="h-auto w-full object-contain sm:max-h-[120px]"
+                decoding="async"
+              />
+            </div>
+          </div>
 
-      {qrCode && <QrCodeDisplay qrCode={qrCode} />}
+          {loading ? (
+            <div className="flex flex-col items-center gap-3 px-7 py-10 sm:px-9">
+              <Loader2 className="h-6 w-6 animate-spin text-[#4B4594]" />
+              <p className="text-sm text-[#8A7BAB]">Preparing two-factor authentication…</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-3.5 px-7 pb-6 pt-3 sm:px-9 sm:pb-7">
+              <div className="text-center">
+                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#F4F0FF]">
+                  <Shield className="h-5 w-5 text-[#4B4594]" aria-hidden />
+                </div>
+                <h1 className="text-lg font-bold text-[#4B4594]">Two-factor authentication</h1>
+                <p className="mt-1 text-xs text-[#8A7BAB]">{subtitle}</p>
+              </div>
 
-      {!qrCode && !error && (
-        <p className="text-sm text-gray-600 mb-4 text-center">
-          {existingFactor
-            ? 'MFA is already set up for this account. Enter the code from your authenticator app.'
-            : 'Enter the code from your authenticator app'}
-        </p>
-      )}
+              {qrCode && <QrCodeDisplay qrCode={qrCode} />}
 
-      <input
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && verifyMFA()}
-        placeholder="000000"
-        maxLength={6}
-        className="w-full border border-gray-300 p-3 rounded-lg text-center tracking-widest text-2xl font-mono mb-3"
-        autoFocus
-      />
+              <div>
+                <label
+                  htmlFor="mfa-code"
+                  className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-[#4A148C]"
+                >
+                  Authenticator code
+                </label>
+                <input
+                  id="mfa-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  maxLength={6}
+                  className="w-full rounded-xl border border-[rgba(74,20,140,0.14)] bg-[#FAFAFE] px-4 py-[0.65rem] text-center font-mono text-lg tracking-widest text-[#2D1B69] outline-none transition"
+                  autoFocus
+                />
+              </div>
 
-      {error && (
-        <p className="mb-3 text-sm text-red-600 text-center">{error}</p>
-      )}
+              {error && (
+                <p className="text-center text-xs text-red-600" role="alert">
+                  {error}
+                </p>
+              )}
 
-      <button
-        onClick={verifyMFA}
-        disabled={!factorId || code.trim().length < 6}
-        className="w-full bg-[#4B4594] text-white p-3 rounded-lg hover:bg-[#5E54A8] transition disabled:opacity-50 font-semibold mb-2"
-      >
-        Verify and Enter
-      </button>
+              <button
+                type="submit"
+                disabled={busy || !factorId || code.trim().length < 6}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#4B4594] py-2.5 text-sm font-semibold text-white transition hover:bg-[#5a529f] disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify and enter'}
+              </button>
 
-      {(error || !qrCode) && (
-        <button
-          type="button"
-          onClick={() => void loadMfa()}
-          className="w-full text-sm text-[#4B4594] underline hover:text-[#5E54A8]"
-        >
-          Show QR code again
-        </button>
-      )}
+              {(error || !qrCode) && (
+                <button
+                  type="button"
+                  onClick={() => void loadMfa()}
+                  className="w-full text-center text-xs font-semibold text-[#4B4594] underline-offset-2 hover:underline"
+                >
+                  {qrCode ? 'Refresh QR code' : 'Show QR code again'}
+                </button>
+              )}
+
+              {onSignOut && (
+                <div className="pt-1 text-center">
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    className="text-xs text-[#8A7BAB] underline-offset-2 hover:text-[#4B4594] hover:underline"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </form>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -2633,28 +2633,15 @@ if (!session) {
 // Dashboard and all authenticated routes require AAL2 (MFA verified in this session).
 if (mfaStatus !== 'verified') {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-[#F4EFFF] via-[#FFF8F0] to-[#EFF9F6] px-4">
-      <div style={{ maxWidth: 480, width: '100%' }}>
-        <div className="mb-6 text-center">
-          <p className="font-['Montserrat',sans-serif] text-2xl font-extrabold tracking-[0.06em] text-[#4B4594]">
-            TULIP <span className="text-[#F9B233]">Flow</span>
-          </p>
-          <p className="mt-1 text-sm text-[#8A7BAB]">Two-factor authentication required</p>
-        </div>
-        <MFAComponent onVerified={async () => {
-          const verified = await recheckMfa()
-          if (verified) {
-            window.history.replaceState(null, '', '/dashboard')
-          }
-        }} />
-        <div className="mt-4 text-center">
-          <button type="button" onClick={() => supabase.auth.signOut()}
-            className="text-xs text-[#8A7BAB] underline hover:text-[#4B4594]">
-            Sign out
-          </button>
-        </div>
-      </div>
-    </div>
+    <MFAComponent
+      onVerified={async () => {
+        const verified = await recheckMfa()
+        if (verified) {
+          window.history.replaceState(null, '', '/dashboard')
+        }
+      }}
+      onSignOut={() => supabase.auth.signOut()}
+    />
   )
 }
 
