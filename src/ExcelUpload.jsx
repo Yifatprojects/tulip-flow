@@ -534,32 +534,11 @@ async function processUpload(file, typeKey) {
 
   if (rows.length === 0) throw new Error('All rows are empty after filtering blank lines.')
 
-  // 2b ─ For template-parsed types (e.g. budgets): A2 may contain a film title
-  //      instead of the actual film_number. Resolve it by looking up title_en / title_he
-  //      so users can put either "Primate" or "7036973" in A2.
+  // 2b ─ Template parsers (e.g. budgets): A2 may be title / profit center, not film_number
   if (typeof config.parseRows === 'function' && rows.length > 0 && rows[0].film_number) {
     const rawId = String(rows[0].film_number).trim()
-
-    const { data: exactMatch } = await supabase
-      .from('films')
-      .select('film_number')
-      .eq('film_number', rawId)
-      .maybeSingle()
-
-    if (!exactMatch) {
-      // Not a valid film_number — try matching against title_en or title_he
-      const { data: titleMatch } = await supabase
-        .from('films')
-        .select('film_number, title_en, title_he')
-        .or(`title_en.ilike.${rawId},title_he.ilike.${rawId}`)
-        .maybeSingle()
-
-      if (titleMatch) {
-        // Replace the raw title with the real film_number on every row
-        for (const row of rows) row.film_number = titleMatch.film_number
-      }
-      // If still not found, the requiresFilmCheck below will surface a clear error
-    }
+    const { film } = await resolveFilmFromCellA2(rawId)
+    for (const row of rows) row.film_number = film.film_number
   }
 
   // 3a ─ For Films: auto-generate film_number when the column is missing/blank
@@ -729,6 +708,205 @@ async function processUpload(file, typeKey) {
 
 // ─── Journal / Budget pre-upload helpers ─────────────────────────────────────
 
+const FILM_LOOKUP_SELECT =
+  'film_number, title_en, title_he, studio, profit_center, profit_center_2'
+
+function dedupeFilmsByNumber(list) {
+  const seen = new Set()
+  return (list ?? []).filter((f) => {
+    if (!f?.film_number || seen.has(f.film_number)) return false
+    seen.add(f.film_number)
+    return true
+  })
+}
+
+function formatFilmChoices(films) {
+  return films
+    .map((f) => `${f.film_number} (${f.title_en || f.title_he || 'untitled'})`)
+    .join(', ')
+}
+
+/** Strip Excel/RTL noise and normalize Unicode for Hebrew/English title matching. */
+function normalizeFilmLookupText(value) {
+  return String(value ?? '')
+    .normalize('NFC')
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Budget templates often label A2 "תקציב …" / "Budget …" instead of the film title alone. */
+function stripBudgetLabelPrefixes(value) {
+  let t = normalizeFilmLookupText(value)
+  const patterns = [/^תקציב\s+/u, /^תקציב[:\s-]*/u, /^budget[:\s-]*/iu]
+  for (const re of patterns) {
+    const next = t.replace(re, '').trim()
+    if (next) t = next
+  }
+  return t
+}
+
+function filmLookupNeedles(rawInput) {
+  const raw = normalizeFilmLookupText(rawInput)
+  const stripped = stripBudgetLabelPrefixes(raw)
+  return [...new Set([raw, stripped].filter(Boolean))]
+}
+
+function escapePostgrestLikePattern(value) {
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+    .replace(/,/g, '')
+}
+
+function compareKey(value) {
+  return normalizeFilmLookupText(value).toLocaleLowerCase('en-US')
+}
+
+/** Score how well A2 matches a film (handles Hebrew budget labels containing the film title). */
+function scoreFilmTitleMatch(rawInput, film) {
+  const queries = filmLookupNeedles(rawInput)
+  const fields = [
+    [film.title_en, 10],
+    [film.title_he, 12],
+    [film.film_number, 8],
+    [film.profit_center, 6],
+    [film.profit_center_2, 6],
+  ]
+
+  let best = 0
+  for (const query of queries) {
+    const qn = compareKey(query)
+    if (!qn) continue
+
+    for (const [val, weight] of fields) {
+      if (val == null || String(val).trim() === '') continue
+      const vn = compareKey(val)
+      if (!vn) continue
+
+      if (vn === qn) {
+        best = Math.max(best, 100 * weight)
+        continue
+      }
+      if (vn.includes(qn) || qn.includes(vn)) {
+        best = Math.max(best, 85 * weight)
+        continue
+      }
+      const tokens = qn.split(/\s+/).filter((t) => t.length >= 2)
+      if (tokens.some((tok) => vn.includes(tok))) {
+        best = Math.max(best, 60 * weight)
+      }
+    }
+  }
+  return best
+}
+
+function pickUniqueFilmByTitleScore(rawInput, films) {
+  const ranked = films
+    .map((film) => ({ film, score: scoreFilmTitleMatch(rawInput, film) }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+
+  if (ranked.length === 0) return null
+  if (ranked.length === 1) return { film: ranked[0].film, matchedBy: 'title' }
+
+  const topScore = ranked[0].score
+  const leaders = ranked.filter((r) => r.score >= topScore * 0.95)
+  if (leaders.length === 1) return { film: leaders[0].film, matchedBy: 'title' }
+
+  return { ambiguous: leaders.map((r) => r.film) }
+}
+
+async function fetchFilmsByTitleNeedles(needles) {
+  const collected = []
+  for (const needle of needles) {
+    if (needle.length < 2) continue
+    const esc = escapePostgrestLikePattern(needle)
+    const { data, error } = await supabase
+      .from('films')
+      .select(FILM_LOOKUP_SELECT)
+      .or(
+        `title_en.ilike.%${esc}%,title_he.ilike.%${esc}%,film_number.ilike.%${esc}%,profit_center.ilike.%${esc}%,profit_center_2.ilike.%${esc}%`,
+      )
+      .limit(20)
+    if (error) throw new Error(`Could not search films: ${error.message}`)
+    collected.push(...(data ?? []))
+  }
+  return dedupeFilmsByNumber(collected)
+}
+
+/**
+ * Resolve cell A2 (film number, profit center, or title) to a films row.
+ * Throws a user-friendly error when nothing matches or multiple films match.
+ */
+async function resolveFilmFromCellA2(rawInput) {
+  const needles = filmLookupNeedles(rawInput)
+  const raw = needles[0] ?? ''
+  if (!raw) {
+    throw new Error(
+      'Cell A2 is empty. Put the film number, profit center, or title in A2.',
+    )
+  }
+
+  const { data: exactFilm } = await supabase
+    .from('films')
+    .select(FILM_LOOKUP_SELECT)
+    .eq('film_number', raw)
+    .maybeSingle()
+
+  if (exactFilm) return { film: exactFilm, matchedBy: 'film_number' }
+
+  for (const [col, label] of [
+    ['profit_center', 'profit center'],
+    ['profit_center_2', 'secondary profit center'],
+  ]) {
+    const { data: byPc } = await supabase
+      .from('films')
+      .select(FILM_LOOKUP_SELECT)
+      .eq(col, raw)
+      .limit(3)
+
+    if (byPc?.length === 1) return { film: byPc[0], matchedBy: col }
+    if (byPc?.length > 1) {
+      throw new Error(
+        `Cell A2 "${raw}" matches more than one film by ${label}: ${formatFilmChoices(byPc)}. Use the film number in A2.`,
+      )
+    }
+  }
+
+  const dbCandidates = await fetchFilmsByTitleNeedles(needles)
+  const titlePick = pickUniqueFilmByTitleScore(rawInput, dbCandidates)
+  if (titlePick?.film) return titlePick
+  if (titlePick?.ambiguous?.length) {
+    throw new Error(
+      `Cell A2 "${raw}" is ambiguous (${formatFilmChoices(titlePick.ambiguous)}). Use the film number in A2.`,
+    )
+  }
+
+  // Hebrew budget labels (e.g. "תקציב הנוסע") may not substring-match in SQL when the
+  // registry title is shorter ("הנוסע"). Scan active films client-side.
+  const { data: activeFilms, error: activeErr } = await supabase
+    .from('films')
+    .select(FILM_LOOKUP_SELECT)
+    .limit(2000)
+
+  if (activeErr) throw new Error(`Could not load films: ${activeErr.message}`)
+
+  const clientPick = pickUniqueFilmByTitleScore(rawInput, activeFilms ?? [])
+  if (clientPick?.film) return clientPick
+  if (clientPick?.ambiguous?.length) {
+    throw new Error(
+      `Cell A2 "${raw}" is ambiguous (${formatFilmChoices(clientPick.ambiguous)}). Use the film number in A2.`,
+    )
+  }
+
+  throw new Error(
+    `No film found for "${raw}" (cell A2). Use the film number, profit center, or the Hebrew/English title as it appears in Active Films — not the budget file name (e.g. drop "תקציב" from the label).`,
+  )
+}
+
 function fmtAmount(value) {
   const n = Number(value)
   if (Number.isNaN(n)) return '—'
@@ -759,38 +937,13 @@ async function previewBudget(file) {
   // Parse rows using the budget template parser (may throw on bad file)
   const rows = config.parseRows(ws)
 
-  // ── Resolve film: A2 may contain a title OR a film_number ──────────────
   const rawId = String(rows[0]?.film_number ?? '').trim()
-  let filmNumber   = rawId
-  let filmTitle    = rawId
-  let studio       = ''
-  let profitCenter = ''
-
-  const { data: exactFilm } = await supabase
-    .from('films')
-    .select('film_number, title_en, title_he, studio, profit_center')
-    .eq('film_number', rawId)
-    .maybeSingle()
-
-  if (exactFilm) {
-    filmTitle    = exactFilm.title_en    || exactFilm.title_he || rawId
-    studio       = exactFilm.studio      || ''
-    profitCenter = exactFilm.profit_center || ''
-  } else {
-    const { data: titleFilm } = await supabase
-      .from('films')
-      .select('film_number, title_en, title_he, studio, profit_center')
-      .or(`title_en.ilike.${rawId},title_he.ilike.${rawId}`)
-      .maybeSingle()
-
-    if (titleFilm) {
-      filmNumber   = titleFilm.film_number
-      filmTitle    = titleFilm.title_en || titleFilm.title_he || rawId
-      studio       = titleFilm.studio        || ''
-      profitCenter = titleFilm.profit_center || ''
-      for (const row of rows) row.film_number = filmNumber
-    }
-  }
+  const { film } = await resolveFilmFromCellA2(rawId)
+  const filmNumber = film.film_number
+  const filmTitle = film.title_en || film.title_he || rawId
+  const studio = film.studio || ''
+  const profitCenter = film.profit_center || ''
+  for (const row of rows) row.film_number = filmNumber
 
   // ── Sum all planned_amount values ───────────────────────────────────────
   const totalAmount = rows.reduce((s, r) => s + (Number(r.planned_amount) || 0), 0)
@@ -817,19 +970,32 @@ async function previewBudget(file) {
  */
 async function executeBudgetUpload(preview, mode) {
   const { rows, filmNumber } = preview
+  const filmNum = String(filmNumber ?? '').trim()
+
+  const { data: filmExists, error: filmErr } = await supabase
+    .from('films')
+    .select('film_number')
+    .eq('film_number', filmNum)
+    .maybeSingle()
+
+  if (filmErr) throw new Error(`Could not verify film: ${filmErr.message}`)
+  if (!filmExists) {
+    throw new Error(
+      `Film "${filmNum}" is not in Active Films. Add the film or fix cell A2, then upload again.`,
+    )
+  }
 
   if (mode === 'overwrite') {
     const { error: delErr } = await supabase
       .from('budgets')
       .delete()
-      .eq('film_number', filmNumber)
+      .eq('film_number', filmNum)
     if (delErr) throw new Error(`Could not remove previous Adpub: ${delErr.message}`)
   }
 
   // Clean rows (strip _row helper field + remove blanks)
   const inserts = rows.map(({ _row, ...data }) => {
-    const out = { ...data }
-    if (out.film_number != null) out.film_number = String(out.film_number).trim()
+    const out = { ...data, film_number: filmNum }
     for (const k of Object.keys(out)) {
       if (out[k] == null || (typeof out[k] === 'string' && out[k].trim() === '')) delete out[k]
     }

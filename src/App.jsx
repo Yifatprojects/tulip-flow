@@ -29,7 +29,8 @@ import MFAComponent from './MFAComponent'
 const DEFAULT_STUDIO_OPTIONS = ['Universal', 'Paramount', 'Warner Bros.', 'Independent']
 
 /** Inline film metadata inputs — matches FilmsManagement styling */
-function FilmTableInput({ value, onChange, placeholder, className = '', dir, type = 'text' }) {
+function FilmTableInput({ value, onChange, placeholder, className = '', dir, type = 'text', sizeCh }) {
+  const charWidth = sizeCh ?? (type === 'text' && value ? Math.max(8, String(value).length + 2) : null)
   return (
     <input
       type={type}
@@ -38,7 +39,8 @@ function FilmTableInput({ value, onChange, placeholder, className = '', dir, typ
       placeholder={placeholder}
       dir={dir}
       onClick={(e) => e.stopPropagation()}
-      className={`w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 ${className}`}
+      style={charWidth ? { width: `${charWidth}ch`, maxWidth: '100%' } : undefined}
+      className={`${charWidth ? 'min-w-0 max-w-full' : 'w-full'} rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#4B4594] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20 ${className}`}
     />
   )
 }
@@ -3358,8 +3360,8 @@ if (currentPage === 'settings') {
                     /* ── Table View ───────────────────────────────────────── */
                     (() => {
                       const COLS = [
-                        { label: 'Film',           key: 'title_en',      align: 'left',  width: '14%', sortable: true },
-                        { label: 'Film #',         key: 'film_number',   align: 'left',  width: '8%',  sortable: true },
+                        { label: 'Film',           key: 'title_en',      align: 'left',  width: '13%', sortable: true },
+                        { label: 'Film #',         key: 'film_number',   align: 'left',  width: '11%', sortable: true },
                         { label: 'Release Date',   key: 'release_date',  align: 'left',  width: '9%',  sortable: true },
                         { label: 'Profit Center',  key: 'profit_center', align: 'left',  width: '10%', sortable: true },
                         { label: 'Planned Adpub', key: 'planned',       align: 'right', width: '10%', sortable: true },
@@ -3470,13 +3472,14 @@ if (currentPage === 'settings') {
                                 </td>
 
                                 {/* Film number */}
-                                <td className="px-3 py-2.5 min-w-0" onClick={(e) => isEditing && e.stopPropagation()}>
+                                <td className="px-3 py-2.5 align-top" onClick={(e) => isEditing && e.stopPropagation()}>
                                   {isEditing ? (
                                     <>
                                       <FilmTableInput
                                         value={activeTableDraft.film_number}
                                         onChange={(v) => patchActiveTableDraft('film_number', v)}
                                         placeholder="Film #"
+                                        sizeCh={Math.max(12, (activeTableDraft.film_number?.length || 0) + 2)}
                                         className="font-['JetBrains_Mono',ui-monospace,monospace] text-xs"
                                       />
                                       {activeTableDraft.film_number !== m.film_number && (
