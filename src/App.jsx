@@ -1,4 +1,5 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertCircle, AlertTriangle, ArrowLeft, ArrowUpDown, BookOpen, Calendar, CheckCircle2,
   ChevronDown, Clapperboard, Clock, DollarSign, Download, Edit2,
@@ -360,6 +361,125 @@ async function fetchExpenseMediaBudgetCodes() {
   }
   return [...new Set(rows.map((r) => String(r.media_budget_code).trim()).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  )
+}
+
+/** Searchable media-code combobox — shared by manual Adpub entry and edit mode. */
+function AdpubMediaCodePicker({
+  controlId,
+  value,
+  onChange,
+  className = '',
+  openId,
+  setOpenId,
+  options,
+  loading,
+}) {
+  const anchorRef = useRef(null)
+  const [menuPos, setMenuPos] = useState(null)
+  const [filterQuery, setFilterQuery] = useState('')
+  const isOpen = openId === controlId
+
+  const updateMenuPos = useCallback(() => {
+    if (!anchorRef.current) return
+    const rect = anchorRef.current.getBoundingClientRect()
+    setMenuPos({
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 220),
+    })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setMenuPos(null)
+      setFilterQuery('')
+      return
+    }
+    updateMenuPos()
+    window.addEventListener('scroll', updateMenuPos, true)
+    window.addEventListener('resize', updateMenuPos)
+    return () => {
+      window.removeEventListener('scroll', updateMenuPos, true)
+      window.removeEventListener('resize', updateMenuPos)
+    }
+  }, [isOpen, updateMenuPos])
+
+  const openMenu = useCallback(() => {
+    setFilterQuery('')
+    setOpenId(controlId)
+  }, [controlId, setOpenId])
+
+  const q = filterQuery.trim().toLowerCase()
+  const filteredCodes = (options ?? [])
+    .filter((code) => !q || code.toLowerCase().includes(q))
+    .slice(0, 100)
+
+  const menu = isOpen && menuPos && createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[9998]"
+        aria-hidden
+        onMouseDown={() => setOpenId(null)}
+      />
+      <div
+        style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
+        className="fixed z-[9999] max-h-56 overflow-y-auto rounded-xl border border-[rgba(74,20,140,0.18)] bg-white py-1 shadow-[0_14px_34px_rgba(46,26,102,0.22)]"
+      >
+        {filteredCodes.length > 0 ? filteredCodes.map((code) => (
+          <button
+            key={code}
+            type="button"
+            dir="rtl"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              onChange(code)
+              setOpenId(null)
+            }}
+            className="block w-full px-3 py-1.5 text-right text-sm font-medium text-[#3C2A78] transition hover:bg-[#F1EBFF]"
+          >
+            {code}
+          </button>
+        )) : (
+          <div className="px-3 py-2 text-right text-xs text-[#8A7BAB]">
+            {loading ? 'טוען קודי מדיה…' : 'לא נמצאו התאמות'}
+          </div>
+        )}
+      </div>
+    </>,
+    document.body,
+  )
+
+  return (
+    <div ref={anchorRef} className={`relative ${className}`}>
+      <input
+        type="text"
+        value={value ?? ''}
+        onFocus={openMenu}
+        onChange={(e) => {
+          onChange(e.target.value)
+          setFilterQuery(e.target.value)
+          setOpenId(controlId)
+        }}
+        placeholder={loading ? 'טוען קודי מדיה…' : 'בחר או חפש קוד מדיה…'}
+        dir="rtl"
+        className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-[#FCFBFF] px-2.5 py-1.5 pr-8 text-sm font-semibold tracking-[0.01em] text-[#2D1B69] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Toggle media code options"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          if (isOpen) setOpenId(null)
+          else openMenu()
+        }}
+        className="absolute inset-y-0 left-1.5 flex items-center text-[#6F63A8] hover:text-[#4B4594]"
+      >
+        <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {menu}
+    </div>
   )
 }
 
@@ -1738,6 +1858,7 @@ export default function App() {
   const [adpubMediaCodeOptions, setAdpubMediaCodeOptions] = useState([])
   const [adpubMediaCodeOptionsLoading, setAdpubMediaCodeOptionsLoading] = useState(false)
   const [openMediaCodeRowId, setOpenMediaCodeRowId] = useState(null)
+  const [newGroupMediaCode, setNewGroupMediaCode] = useState('')
 
   const [actualExpensesRows, setActualExpensesRows] = useState([])
   const [actualExpensesLoading, setActualExpensesLoading] = useState(false)
@@ -2091,6 +2212,8 @@ export default function App() {
       startBudgetEditEmpty()
       return
     }
+    setNewGroupMediaCode('')
+    setOpenMediaCodeRowId(null)
     setDraftRows(budgetRows.map((r) => ({ ...r, isNew: false })))
     setBudgetEditMode(true)
     setExpandedGroups(new Set(budgetRows.map((r) => r.mediaCode || '__none__')))
@@ -2100,10 +2223,12 @@ export default function App() {
     setBudgetEditMode(false)
     setDraftRows([])
     setBudgetSaveToast(null)
+    setNewGroupMediaCode('')
+    setOpenMediaCodeRowId(null)
   }, [])
 
   useEffect(() => {
-    if (!budgetEditMode || budgetRows.length > 0) return
+    if (!budgetEditMode) return
     let cancelled = false
     async function loadMediaCodes() {
       setAdpubMediaCodeOptionsLoading(true)
@@ -2119,7 +2244,7 @@ export default function App() {
     }
     void loadMediaCodes()
     return () => { cancelled = true }
-  }, [budgetEditMode, budgetRows.length])
+  }, [budgetEditMode])
 
   const adpubMediaCodeSearchOptions = useMemo(() => {
     const extra = draftRows.map((r) => r.mediaCode?.trim()).filter(Boolean)
@@ -2133,6 +2258,13 @@ export default function App() {
     setDraftRows((prev) =>
       prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)),
     )
+    if (field === 'mediaCode') {
+      setExpandedGroups((prev) => {
+        const next = new Set(prev)
+        next.add(String(value ?? '').trim() || '__none__')
+        return next
+      })
+    }
   }, [])
 
   const removeBudgetDraftRow = useCallback((rowId) => {
@@ -2178,6 +2310,14 @@ export default function App() {
       return next
     })
   }, [])
+
+  const addBudgetNewMediaCodeRow = useCallback(() => {
+    const code = newGroupMediaCode.trim()
+    addBudgetDraftRowWithPrefill({ mediaCode: code, isMedia: false })
+    setNewGroupMediaCode('')
+    setOpenMediaCodeRowId(null)
+    setBudgetFilter('all')
+  }, [newGroupMediaCode, addBudgetDraftRowWithPrefill])
 
   const saveBudgetEdit = useCallback(async () => {
     const film = selectedMovie
@@ -2270,6 +2410,7 @@ export default function App() {
       setAdpubMediaCodeOptions([])
       setAdpubMediaCodeOptionsLoading(false)
       setOpenMediaCodeRowId(null)
+      setNewGroupMediaCode('')
       return
     }
 
@@ -4011,62 +4152,15 @@ if (currentPage === 'settings') {
                                     />
                                   </td>
                                   <td className="p-2">
-                                    {(() => {
-                                      const query = String(row.mediaCode ?? '').trim().toLowerCase()
-                                      const filteredCodes = adpubMediaCodeSearchOptions
-                                        .filter((code) => code.toLowerCase().includes(query))
-                                        .slice(0, 60)
-                                      return (
-                                        <div className="relative">
-                                          <input
-                                            type="text"
-                                            value={row.mediaCode ?? ''}
-                                            onFocus={() => setOpenMediaCodeRowId(row.id)}
-                                            onChange={(e) => {
-                                              patchBudgetDraftField(row.id, 'mediaCode', e.target.value)
-                                              setOpenMediaCodeRowId(row.id)
-                                            }}
-                                            placeholder={adpubMediaCodeOptionsLoading ? 'טוען קודי מדיה…' : 'בחר או חפש קוד מדיה…'}
-                                            dir="rtl"
-                                            className="w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-[#FCFBFF] px-2.5 py-1.5 pr-8 text-sm font-semibold tracking-[0.01em] text-[#2D1B69] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20"
-                                          />
-                                          <button
-                                            type="button"
-                                            tabIndex={-1}
-                                            aria-label="Toggle media code options"
-                                            onMouseDown={(e) => e.preventDefault()}
-                                            onClick={() => setOpenMediaCodeRowId((prev) => (prev === row.id ? null : row.id))}
-                                            className="absolute inset-y-0 left-1.5 flex items-center text-[#6F63A8] hover:text-[#4B4594]"
-                                          >
-                                            <ChevronDown className={`h-4 w-4 transition-transform ${openMediaCodeRowId === row.id ? 'rotate-180' : ''}`} />
-                                          </button>
-
-                                          {openMediaCodeRowId === row.id && (
-                                            <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-[rgba(74,20,140,0.18)] bg-white py-1 shadow-[0_14px_34px_rgba(46,26,102,0.22)]">
-                                              {filteredCodes.length > 0 ? filteredCodes.map((code) => (
-                                                <button
-                                                  key={code}
-                                                  type="button"
-                                                  dir="rtl"
-                                                  onMouseDown={(e) => {
-                                                    e.preventDefault()
-                                                    patchBudgetDraftField(row.id, 'mediaCode', code)
-                                                    setOpenMediaCodeRowId(null)
-                                                  }}
-                                                  className="block w-full px-3 py-1.5 text-right text-sm font-medium text-[#3C2A78] transition hover:bg-[#F1EBFF]"
-                                                >
-                                                  {code}
-                                                </button>
-                                              )) : (
-                                                <div className="px-3 py-2 text-right text-xs text-[#8A7BAB]">
-                                                  לא נמצאו התאמות
-                                                </div>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                      )
-                                    })()}
+                                    <AdpubMediaCodePicker
+                                      controlId={row.id}
+                                      value={row.mediaCode ?? ''}
+                                      onChange={(val) => patchBudgetDraftField(row.id, 'mediaCode', val)}
+                                      openId={openMediaCodeRowId}
+                                      setOpenId={setOpenMediaCodeRowId}
+                                      options={adpubMediaCodeSearchOptions}
+                                      loading={adpubMediaCodeOptionsLoading}
+                                    />
                                   </td>
                                   <td className="p-2 text-center">
                                     <input
@@ -4163,32 +4257,100 @@ if (currentPage === 'settings') {
                   return next
                 })
 
-                const editInput = (row, field, type = 'text') => (
+                const adpubFieldClass =
+                  'w-full rounded-lg border border-[rgba(74,20,140,0.2)] bg-white px-2.5 py-1.5 text-sm text-[#2D1B69] outline-none transition focus:border-[#4B4594] focus:ring-2 focus:ring-[#4B4594]/20'
+
+                const adpubFieldLabel = (text) => (
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[#8A7BAB]">
+                    {text}
+                  </span>
+                )
+
+                const editInput = (row, field, type = 'text', inputClass = adpubFieldClass) => (
                   <input
                     type={type}
                     value={type === 'number' ? (row[field] ?? 0) : (row[field] ?? '')}
                     onChange={e => patchBudgetDraftField(row.id, field, type === 'number' ? Number(e.target.value) : e.target.value)}
-                    className="w-full rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
+                    className={inputClass}
                     placeholder={field === 'categoryName' ? 'Item name…' : field === 'vendorName' ? 'Vendor…' : '0'}
                   />
                 )
 
-                const mediaToggle = (row) => (
+                const mediaToggle = (row, compact = false) => (
                   <button
                     type="button"
                     title={row.isMedia === true ? 'Media' : row.isMedia === false ? 'Non-Media' : 'Unknown'}
                     onClick={() => {
                       patchBudgetDraftField(row.id, 'isMedia', row.isMedia !== true)
                     }}
-                    className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide transition ${
-                      row.isMedia === true  ? 'bg-[#BFDBFE] text-[#1D4ED8]' :
-                      row.isMedia === false ? 'bg-[#FDE68A] text-[#92400E]' :
-                      'bg-slate-100 text-[#8A7BAB]'
-                    }`}
+                    className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
+                      row.isMedia === true  ? 'border-[#BFDBFE] bg-[#EFF6FF] text-[#1D4ED8]' :
+                      row.isMedia === false ? 'border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]' :
+                      'border-slate-200 bg-slate-50 text-[#8A7BAB]'
+                    } ${compact ? 'px-1.5 py-0.5 text-[9px]' : ''}`}
                   >
-                    {row.isMedia === true ? 'M' : row.isMedia === false ? 'NM' : '?'}
+                    {row.isMedia === true ? (compact ? 'M' : 'Media') : row.isMedia === false ? (compact ? 'NM' : 'Non-media') : '?'}
                   </button>
                 )
+
+                const removeRowButton = (rowId, label = '') => (
+                  <button
+                    type="button"
+                    onClick={() => removeBudgetDraftRow(rowId)}
+                    className={`inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-[rgba(230,30,110,0.28)] bg-[#FFF1F6] text-[#C0004C] transition hover:bg-[#FFE4EE] ${
+                      label ? 'px-2.5 py-1 text-[10px] font-semibold' : 'p-1.5'
+                    }`}
+                    title="Delete line"
+                    aria-label="Delete line"
+                  >
+                    <Trash2Icon className="h-3.5 w-3.5" aria-hidden />
+                    {label}
+                  </button>
+                )
+
+                const renderNewBudgetEditRow = (row, childBg) => (
+                  <tr key={row.id} className={`border-t border-[rgba(74,20,140,0.08)] ${childBg}`}>
+                    <td colSpan={5} className="px-4 py-3">
+                      <div className="rounded-xl border border-dashed border-[rgba(74,20,140,0.16)] bg-[#FAFAFE] p-3.5 shadow-sm">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12 lg:items-start lg:gap-4">
+                          <div className="lg:col-span-4">
+                            {adpubFieldLabel('Item name')}
+                            {editInput(row, 'categoryName')}
+                          </div>
+                          <div className="lg:col-span-4">
+                            {adpubFieldLabel('Media code')}
+                            <AdpubMediaCodePicker
+                              controlId={row.id}
+                              value={row.mediaCode ?? ''}
+                              onChange={(val) => patchBudgetDraftField(row.id, 'mediaCode', val)}
+                              openId={openMediaCodeRowId}
+                              setOpenId={setOpenMediaCodeRowId}
+                              options={adpubMediaCodeSearchOptions}
+                              loading={adpubMediaCodeOptionsLoading}
+                            />
+                          </div>
+                          <div className="lg:col-span-2">
+                            {adpubFieldLabel('Vendor')}
+                            {editInput(row, 'vendorName')}
+                          </div>
+                          <div className="lg:col-span-2">
+                            {adpubFieldLabel('Planned (₪)')}
+                            {editInput(row, 'budget', 'number', `${adpubFieldClass} text-right`)}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[rgba(74,20,140,0.08)] pt-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-medium text-[#8A7BAB]">Spend type</span>
+                            {mediaToggle(row)}
+                          </div>
+                          {removeRowButton(row.id, 'Remove')}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )
+
+                const mediaToggleCompact = (row) => mediaToggle(row, true)
 
                 const renderGroup = ([groupKey, { code, rows }]) => {
                   const groupBudget   = rows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
@@ -4222,49 +4384,38 @@ if (currentPage === 'settings') {
 
                       {/* Child rows */}
                       {isExpanded && rows.map((row) => (
-                        <tr key={row.id} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg}`}>
-                          <td className="py-2 pl-9 pr-4">
+                        budgetEditMode && row.isNew
+                          ? renderNewBudgetEditRow(row, childBg)
+                          : (
+                        <tr key={row.id} className={`border-t border-[rgba(74,20,140,0.05)] ${childBg} align-top`}>
+                          <td className="py-2.5 pl-9 pr-4 align-top">
                             {budgetEditMode
                               ? (
-                                <div className="flex items-center gap-1">
-                                  {editInput(row, 'categoryName')}
-                                  {mediaToggle(row)}
-                                  <button
-                                    type="button"
-                                    onClick={() => removeBudgetDraftRow(row.id)}
-                                    className="ml-1 inline-flex items-center justify-center rounded-md border border-[rgba(230,30,110,0.28)] bg-[#FFF1F6] p-1 text-[#C0004C] transition hover:bg-[#FFE4EE]"
-                                    title="Delete line"
-                                    aria-label="Delete line"
-                                  >
-                                    <Trash2Icon className="h-3.5 w-3.5" aria-hidden />
-                                  </button>
+                                <div className="flex items-start gap-1.5">
+                                  <div className="min-w-0 flex-1">{editInput(row, 'categoryName')}</div>
+                                  {mediaToggleCompact(row)}
+                                  {removeRowButton(row.id)}
                                 </div>
                               )
                               : <span className="text-[12.5px] text-[#5B4B7A]">{row.categoryName}</span>
                             }
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2.5 align-top">
                             {budgetEditMode
                               ? editInput(row, 'vendorName')
                               : <span className="text-xs text-[#A09ABB]">{row.vendorName || '—'}</span>
                             }
                           </td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="px-4 py-2.5 text-right align-top">
                             {budgetEditMode
-                              ? <input
-                                  type="number"
-                                  min="0"
-                                  step="100"
-                                  value={row.budget ?? 0}
-                                  onChange={e => patchBudgetDraftField(row.id, 'budget', Number(e.target.value))}
-                                  className="w-28 rounded-md border border-[rgba(74,20,140,0.25)] bg-white px-2 py-1 text-right text-[12.5px] text-[#2D1B69] outline-none focus:border-[#4B4594] focus:ring-1 focus:ring-[#4B4594]/30"
-                                />
+                              ? editInput(row, 'budget', 'number', `${adpubFieldClass} w-28 text-right`)
                               : <span className="font-['Montserrat',sans-serif] text-[12.5px] tabular-nums text-[#5B4B7A]">{formatCurrency(row.budget)}</span>
                             }
                           </td>
-                          <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
-                          <td className="px-4 py-2 text-right text-xs text-[#D1C8E8]">—</td>
+                          <td className="px-4 py-2.5 text-right text-xs text-[#D1C8E8] align-top">—</td>
+                          <td className="px-4 py-2.5 text-right text-xs text-[#D1C8E8] align-top">—</td>
                         </tr>
+                          )
                       ))}
 
                       {/* Add row button — only in edit mode */}
@@ -4622,6 +4773,35 @@ if (currentPage === 'settings') {
                             </>
                           )
                         })()}
+
+                        {budgetEditMode && (
+                          <tr className="border-t-2 border-dashed border-[rgba(74,20,140,0.22)] bg-[#F7F2FF]">
+                            <td colSpan={5} className="px-4 py-3">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                <div className="w-full max-w-md flex-1">
+                                  {adpubFieldLabel('Add row — new media code')}
+                                  <AdpubMediaCodePicker
+                                    controlId="__new_group__"
+                                    value={newGroupMediaCode}
+                                    onChange={setNewGroupMediaCode}
+                                    openId={openMediaCodeRowId}
+                                    setOpenId={setOpenMediaCodeRowId}
+                                    options={adpubMediaCodeSearchOptions}
+                                    loading={adpubMediaCodeOptionsLoading}
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={addBudgetNewMediaCodeRow}
+                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#4A148C] px-4 py-2 text-[11px] font-semibold text-white shadow-sm transition hover:bg-[#3d1274]"
+                                >
+                                  <PlusCircle className="h-3.5 w-3.5" aria-hidden />
+                                  Add Adpub Row
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                       <tfoot>
                         {/* Sub-totals row — only shown when filter is 'all' and both types exist */}
